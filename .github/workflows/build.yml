@@ -25,9 +25,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .container/gradle
-          # Explicit files (no `**` glob) so hashFiles never has to walk into
-          # build output directories, which could fail on CI.
-          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'gradle.properties') }}
+          # Static key on purpose: it never calls hashFiles(), which failed on
+          # CI when it had to walk directories created by the build
+          # ("Fail to hash files under directory ..."). Bump the -v1 suffix
+          # whenever you want to refresh the cache.
+          key: gradle-${{ runner.os }}-v1
           restore-keys: |
             gradle-${{ runner.os }}-
 
