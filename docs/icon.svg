@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FossFiles app icon (vector source of truth: app/src/main/res/drawable/ic_launcher_*.xml).
+  Background #1B5E20, white folder glyph. Used in the README.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108" role="img" aria-label="FossFiles">
+  <rect width="108" height="108" rx="24" fill="#1B5E20"/>
+  <path fill="#FFFFFF" d="M30,38 h18 l8,10 h22 a6,6 0 0 1 6,6 v22 a6,6 0 0 1 -6,6 h-48 a6,6 0 0 1 -6,-6 v-32 a6,6 0 0 1 6,-6 z"/>
+</svg>

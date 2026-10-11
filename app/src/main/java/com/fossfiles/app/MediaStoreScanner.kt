@@ -33,6 +33,9 @@ object MediaStoreScanner {
         }
     }
 
+    // MediaStore.MediaColumns.DATA está deprecado, pero es la vía para obtener rutas
+    // reales de archivo (la app tiene acceso total, no usa SAF).
+    @Suppress("DEPRECATION")
     private fun query(context: Context, uri: android.net.Uri): List<FileItem> {
         val results = mutableListOf<FileItem>()
         val projection = arrayOf(

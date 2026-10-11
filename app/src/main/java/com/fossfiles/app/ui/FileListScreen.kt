@@ -295,7 +295,7 @@ private fun FileList(
                 onClick = { if (selecting) onToggle(item) else onOpen(item) },
                 onLongClick = { onToggle(item) }
             )
-            Divider()
+            HorizontalDivider()
         }
     }
 }

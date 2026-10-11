@@ -28,6 +28,9 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    // getExternalStorageDirectory() está deprecado en API 29+, pero sigue siendo la
+    // única forma de obtener la raíz del almacenamiento compartido con acceso total.
+    @Suppress("DEPRECATION")
     private val viewModel: FileViewModel by viewModels {
         object : ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
