@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -71,7 +72,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val job = viewModelScope.launch {
             try {
                 if (debounceMs > 0) delay(debounceMs)
-                val loaded = withContext(Dispatchers.IO) { work { isActive } }
+                val loaded = withContext(Dispatchers.IO) { work { this@launch.isActive } }
                 items.value = loaded.items
                 // Si algo de lo seleccionado ya no está en la lista, se quita de la selección.
                 if (selection.value.isNotEmpty()) {
