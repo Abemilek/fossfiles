@@ -1,10 +1,13 @@
 package com.fossfiles.app.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 // Negro puro (#000000) en fondo y superficies: en pantallas AMOLED esos
@@ -21,12 +24,14 @@ private val AmoledDarkColors = darkColorScheme(
 
 private val LightColors = lightColorScheme()
 
+// Política de cero animaciones: la app no anima nada por sí misma (sin transiciones,
+// sin ripple, sin hojas ni menús que se deslizan). Aquí se apaga además el efecto de
+// "estirar" al llegar al final de una lista, que es una animación del sistema.
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FossFilesTheme(content: @Composable () -> Unit) {
-    val darkTheme = isSystemInDarkTheme()
-    val colorScheme = when {
-        darkTheme -> AmoledDarkColors
-        else -> LightColors
+    val colorScheme = if (isSystemInDarkTheme()) AmoledDarkColors else LightColors
+    MaterialTheme(colorScheme = colorScheme) {
+        CompositionLocalProvider(LocalOverscrollConfiguration provides null, content = content)
     }
-    MaterialTheme(colorScheme = colorScheme, content = content)
 }

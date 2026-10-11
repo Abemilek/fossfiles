@@ -79,4 +79,7 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     // Para mover la lectura de archivos fuera del hilo principal y que la UI no se congele.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Solo para las pruebas de JVM (./gradlew testDebugUnitTest). No entra en el APK.
+    testImplementation("junit:junit:4.13.2")
 }

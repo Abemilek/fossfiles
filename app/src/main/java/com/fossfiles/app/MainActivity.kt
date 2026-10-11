@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
@@ -21,6 +22,8 @@ import com.fossfiles.app.ui.CategoryListScreen
 import com.fossfiles.app.ui.FileListScreen
 import com.fossfiles.app.ui.FossFilesTheme
 import com.fossfiles.app.ui.HomeScreen
+import com.fossfiles.app.ui.MessageBanner
+import com.fossfiles.app.ui.PlainButton
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -41,21 +44,52 @@ class MainActivity : ComponentActivity() {
         setContent {
             FossFilesTheme {
                 var hasPermission by remember { mutableStateOf(hasStoragePermission()) }
+                val message by viewModel.message
 
-                if (hasPermission) {
-                    when (viewModel.screenMode.value) {
-                        ScreenMode.HOME -> HomeScreen(viewModel = viewModel)
-                        ScreenMode.BROWSE -> FileListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
-                        ScreenMode.CATEGORY -> CategoryListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
+                // Atrás: primero cierra la selección, luego sube de carpeta / vuelve al Home.
+                // En el Home (sin selección) queda desactivado y Android cierra la app.
+                BackHandler(
+                    enabled = hasPermission &&
+                        (viewModel.selection.value.isNotEmpty() || viewModel.screenMode.value != ScreenMode.HOME)
+                ) {
+                    handleBack()
+                }
+
+                Box(Modifier.fillMaxSize()) {
+                    if (hasPermission) {
+                        when (viewModel.screenMode.value) {
+                            ScreenMode.HOME -> HomeScreen(viewModel = viewModel)
+                            ScreenMode.BROWSE -> FileListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
+                            ScreenMode.CATEGORY -> CategoryListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
+                        }
+                    } else {
+                        PermissionScreen(onGrant = { requestStoragePermission() })
                     }
-                } else {
-                    PermissionScreen(onGrant = { requestStoragePermission() })
+
+                    // Aviso dentro de la app (un Toast del sistema se anima al aparecer y desaparecer).
+                    message?.let { text ->
+                        MessageBanner(
+                            text = text,
+                            onDismiss = { viewModel.dismissMessage() },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
+                    }
                 }
 
                 // Vuelve a comprobar el permiso cuando la app regresa a primer plano
                 // (por ejemplo, tras volver de la pantalla de Ajustes).
                 DisposableLifecycleCheck { hasPermission = hasStoragePermission() }
             }
+        }
+    }
+
+    private fun handleBack() {
+        if (viewModel.selection.value.isNotEmpty()) {
+            viewModel.clearSelection()
+        } else if (viewModel.screenMode.value == ScreenMode.BROWSE) {
+            if (!viewModel.goUp()) viewModel.goHome()
+        } else {
+            viewModel.goHome()
         }
     }
 
@@ -103,7 +137,7 @@ private fun PermissionScreen(onGrant: () -> Unit) {
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onGrant) { Text("Conceder acceso") }
+        PlainButton(text = "Conceder acceso", onClick = onGrant)
     }
 }
 

@@ -1,8 +1,9 @@
 package com.fossfiles.app.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,7 +53,7 @@ fun HomeScreen(viewModel: FileViewModel) {
                 items(categoryTiles) { tile ->
                     CategoryTile(tile.label, tile.icon) { viewModel.openCategory(tile.category) }
                 }
-                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
+                item(span = { GridItemSpan(2) }) {
                     CategoryTile("Almacenamiento interno", Icons.Default.Folder, fullWidth = true) {
                         viewModel.openInternalStorage()
                     }
@@ -74,42 +75,52 @@ private val categoryTiles = listOf(
 
 @Composable
 private fun StorageCard(storage: StorageInfo) {
-    Card(shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text("Almacenamiento", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { storage.usedFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${formatSize(storage.usedBytes)} usados de ${formatSize(storage.totalBytes)}",
-                style = MaterialTheme.typography.bodySmall
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(16.dp)
+    ) {
+        Text("Almacenamiento", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        // Barra dibujada a mano: LinearProgressIndicator anima su avance.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(storage.usedFraction)
+                    .fillMaxHeight()
+                    .background(MaterialTheme.colorScheme.primary)
             )
         }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "${formatSize(storage.usedBytes)} usados de ${formatSize(storage.totalBytes)}",
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
 @Composable
 private fun CategoryTile(label: String, icon: ImageVector, fullWidth: Boolean = false, onClick: () -> Unit) {
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .let { if (!fullWidth) it.height(96.dp) else it }
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .plainClickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-        }
+        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
     }
 }

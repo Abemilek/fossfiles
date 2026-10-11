@@ -1,3 +1,15 @@
 <resources>
-    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowAnimationStyle">@style/NoWindowAnimations</item>
+    </style>
+
+    <!-- Política de cero animaciones: sin transición al abrir/cerrar la ventana. -->
+    <style name="NoWindowAnimations" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@null</item>
+        <item name="android:windowExitAnimation">@null</item>
+        <item name="android:activityOpenEnterAnimation">@null</item>
+        <item name="android:activityOpenExitAnimation">@null</item>
+        <item name="android:activityCloseEnterAnimation">@null</item>
+        <item name="android:activityCloseExitAnimation">@null</item>
+    </style>
 </resources>

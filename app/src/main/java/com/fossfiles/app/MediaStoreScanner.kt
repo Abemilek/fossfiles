@@ -37,6 +37,7 @@ object MediaStoreScanner {
         val results = mutableListOf<FileItem>()
         val projection = arrayOf(
             MediaStore.MediaColumns.DATA,
+            MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_MODIFIED
         )
         try {
@@ -45,10 +46,23 @@ object MediaStoreScanner {
                 "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
             )?.use { cursor ->
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(dataCol) ?: continue
                     val file = File(path)
-                    if (file.exists()) results.add(FileItem(file))
+                    // El índice puede ir un poco por detrás del disco: se descarta lo que ya no existe.
+                    if (!file.exists()) continue
+                    // Tamaño y fecha vienen del índice: evita 2 llamadas al sistema por archivo.
+                    results.add(
+                        FileItem(
+                            file = file,
+                            name = file.name,
+                            isDirectory = false,
+                            sizeBytes = cursor.getLong(sizeCol),
+                            lastModified = cursor.getLong(dateCol) * 1000L // MediaStore usa segundos
+                        )
+                    )
                 }
             }
         } catch (e: Exception) {
