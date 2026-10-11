@@ -6,6 +6,7 @@
 
 **A native Android file manager with no telemetry, no Google services and no bloat.**
 
+[![Build](https://github.com/Abemilek/fossfiles/actions/workflows/build.yml/badge.svg)](https://github.com/Abemilek/fossfiles/actions/workflows/build.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android-3DDC84.svg?logo=android&logoColor=white)](#)
 [![Language: Kotlin](https://img.shields.io/badge/Language-Kotlin-7F52FF.svg?logo=kotlin&logoColor=white)](#)

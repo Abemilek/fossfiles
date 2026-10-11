@@ -1,0 +1,4 @@
+# Docker reads .dockerignore (Podman also reads .containerignore).
+# The image build needs only the Containerfile; keep the context tiny.
+*
+!Containerfile

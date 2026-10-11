@@ -26,23 +26,29 @@ if ! command -v "$ENGINE" >/dev/null 2>&1; then
 fi
 
 # 1) Build the builder image once (first run downloads the base image + Android SDK).
-if ! "$ENGINE" image exists "$IMAGE" >/dev/null 2>&1; then
+if ! "$ENGINE" image inspect "$IMAGE" >/dev/null 2>&1; then
   echo ">> Building builder image '$IMAGE' (this only happens once)..."
   "$ENGINE" build -f Containerfile -t "$IMAGE" .
 fi
 
-# 2) Point Gradle at the SDK inside the container without touching your own
-#    local.properties: an empty temp file is mounted read-only over it.
+# 2) --userns=keep-id is Podman-only and keeps the generated files owned by you.
+#    Docker (e.g. on CI, running as root) needs no equivalent.
+RUN_ARGS=()
+if [ "$ENGINE" = "podman" ]; then
+  RUN_ARGS+=(--userns=keep-id)
+fi
+
+# 3) Point Gradle at the SDK inside the container without touching your own
+#    local.properties: a temp file is mounted read-only over it.
 mkdir -p "$CACHE_DIR"
 TMP_PROPS="$(mktemp)"
 trap 'rm -f "$TMP_PROPS"' EXIT
 printf 'sdk.dir=%s\n' "$SDK_IN_CONTAINER" > "$TMP_PROPS"
 
-# 3) Run the build. --userns=keep-id makes the generated files belong to you,
-#    and the Gradle cache persists in .container/gradle between runs.
+# 4) Run the build. The Gradle cache persists in .container/gradle between runs.
 echo ">> Building: ${GRADLE_TASKS[*]}"
 "$ENGINE" run --rm \
-  --userns=keep-id \
+  "${RUN_ARGS[@]}" \
   -e HOME=/tmp \
   -e GRADLE_USER_HOME=/gradle \
   -v "$CACHE_DIR":/gradle \
