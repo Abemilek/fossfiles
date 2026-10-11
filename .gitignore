@@ -33,3 +33,6 @@ Thumbs.db
 
 # --- Logs ---
 *.log
+
+# --- Container build (Podman/Docker) ---
+.container/

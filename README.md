@@ -85,6 +85,21 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 4. Run ▶.
 5. The first time, the app asks for the "All files access" permission — it takes you straight to Settings to enable it.
 
+## Build with Podman or Docker (no local toolchain)
+Don't want to install a JDK, the Android SDK, Gradle or Kotlin? You only need **Podman** (or Docker):
+
+```bash
+./build-in-container.sh                    # release APKs (default)
+./build-in-container.sh assembleDebug      # any Gradle task
+./build-in-container.sh testDebugUnitTest  # run the JVM tests
+ENGINE=docker ./build-in-container.sh      # use Docker instead of Podman
+```
+
+The first run builds a small builder image (`Containerfile`: JDK 17 + the Android SDK, with the
+toolchain's telemetry off) and caches Gradle in `.container/gradle`, so later builds are fast. The
+generated files belong to you, and your own `local.properties` is left untouched. This is the same
+approach CI systems use, and it makes builds reproducible across machines.
+
 ## Testing
 The file logic (`FileRepository`) does not depend on Android and has JVM tests:
 

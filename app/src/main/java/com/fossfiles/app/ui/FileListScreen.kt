@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -64,13 +65,13 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                         TopAppBar(
                             title = { Text(currentDir.name.ifBlank { "/" }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             navigationIcon = {
-                                IconAction(Icons.Default.ArrowBack, "Atrás") { if (!viewModel.goUp()) onBack() }
+                                IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás") { if (!viewModel.goUp()) onBack() }
                             },
                             actions = {
                                 if (clipboard.isNotEmpty()) {
                                     IconAction(Icons.Default.ContentPaste, "Pegar ${clipboard.size}") { viewModel.pasteHere() }
                                 }
-                                IconAction(Icons.Default.Sort, "Ordenar") { showSort = !showSort }
+                                IconAction(Icons.AutoMirrored.Filled.Sort, "Ordenar") { showSort = !showSort }
                                 IconAction(Icons.Default.CreateNewFolder, "Nueva carpeta") { showNewFolderDialog = true }
                             }
                         )
@@ -156,7 +157,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 } else {
                     TopAppBar(
                         title = { Text(title) },
-                        navigationIcon = { IconAction(Icons.Default.ArrowBack, "Atrás", onBack) }
+                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) }
                     )
                 }
             }
@@ -306,7 +307,7 @@ private fun iconFor(item: FileItem): ImageVector = when (item.kind()) {
     FileKind.VIDEO -> Icons.Default.Movie
     FileKind.AUDIO -> Icons.Default.AudioFile
     FileKind.DOCUMENT -> Icons.Default.Description
-    FileKind.OTHER -> Icons.Default.InsertDriveFile
+    FileKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
 @Composable

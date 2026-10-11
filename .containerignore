@@ -1,0 +1,4 @@
+# The image build does not COPY anything from the context; it only needs the
+# Containerfile. Ignoring everything else keeps the build context tiny and fast.
+*
+!Containerfile
