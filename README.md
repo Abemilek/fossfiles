@@ -32,3 +32,21 @@ que compila a bytecode nativo del sistema, sin puente a otro runtime).
 - Barra de accesos rápidos a Descargas, DCIM, etc.
 - Selección múltiple para operaciones en lote
 - Firmar el APK release para instalarlo sin Android Studio
+
+## Licencia
+FossFiles es software libre bajo la **GNU General Public License v3.0** (o cualquier
+versión posterior). Puedes usar, estudiar, modificar y redistribuir este programa,
+siempre que las versiones derivadas sigan siendo libres bajo la misma licencia.
+
+Consulta el archivo [LICENSE](LICENSE) para el texto completo.
+
+    Copyright (C) 2026 Abemilek
+
+    Este programa es software libre: puedes redistribuirlo y/o modificarlo
+    bajo los términos de la Licencia Pública General GNU publicada por la
+    Free Software Foundation, ya sea la versión 3 de la Licencia, o (a tu
+    elección) cualquier versión posterior.
+
+    Este programa se distribuye con la esperanza de que sea útil, pero SIN
+    NINGUNA GARANTÍA; sin siquiera la garantía implícita de COMERCIABILIDAD
+    o IDONEIDAD PARA UN PROPÓSITO PARTICULAR.
