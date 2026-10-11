@@ -1,0 +1,38 @@
+# --- Gradle ---
+.gradle/
+build/
+.kotlin/
+
+# --- Local / depende de tu máquina (NO subir) ---
+local.properties
+
+# --- Android Studio / IntelliJ ---
+*.iml
+.idea/
+captures/
+.navigation/
+.externalNativeBuild/
+.cxx/
+
+# --- Artefactos de compilación sueltos ---
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# --- Firma de release (NUNCA subir) ---
+*.jks
+*.keystore
+
+# --- Sistema operativo / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- Logs ---
+*.log
+
+# --- Apuntes locales ---
+url
