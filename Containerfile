@@ -22,7 +22,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Install the Android command-line tools and the exact SDK components the
-# project needs, and accept the SDK licenses non-interactively.
+# project needs, accept the SDK licenses, and leave the SDK usable by a
+# non-root user (the build runs with --user on Docker so the generated files
+# belong to you and never to root).
 RUN curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip" -o /tmp/tools.zip \
  && mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools" \
  && unzip -q /tmp/tools.zip -d /tmp/tools \
@@ -31,7 +33,7 @@ RUN curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-
  && yes | sdkmanager --licenses > /dev/null \
  && sdkmanager --install "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}" \
  && rm -rf "${ANDROID_SDK_ROOT}/.temp" "${ANDROID_SDK_ROOT}/.downloadIntermediates" /root/.android \
- && chmod -R a+rX "${ANDROID_SDK_ROOT}"
+ && chmod -R a+rwX "${ANDROID_SDK_ROOT}"
 
 # Keep the toolchain's own telemetry off at build time.
 # (Gradle/AGP do not send telemetry by default; the Kotlin FUS reporter is opt-in.)

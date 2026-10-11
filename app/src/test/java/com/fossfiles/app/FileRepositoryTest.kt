@@ -17,7 +17,7 @@ class FileRepositoryTest {
     }
 
     private fun File.file(name: String, text: String = "x"): File =
-        File(this, name).also { it.parentFile.mkdirs(); it.writeText(text) }
+        File(this, name).also { it.parentFile?.mkdirs(); it.writeText(text) }
 
     private fun File.dir(name: String): File = File(this, name).also { it.mkdirs() }
 

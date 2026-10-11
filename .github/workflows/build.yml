@@ -25,7 +25,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .container/gradle
-          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts', 'gradle.properties') }}
+          # Explicit files (no `**` glob) so hashFiles never has to walk into
+          # build output directories, which could fail on CI.
+          key: gradle-${{ runner.os }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties', 'settings.gradle.kts', 'build.gradle.kts', 'app/build.gradle.kts', 'gradle.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 

@@ -31,11 +31,18 @@ if ! "$ENGINE" image inspect "$IMAGE" >/dev/null 2>&1; then
   "$ENGINE" build -f Containerfile -t "$IMAGE" .
 fi
 
-# 2) --userns=keep-id is Podman-only and keeps the generated files owned by you.
-#    Docker (e.g. on CI, running as root) needs no equivalent.
+# 2) Keep everything the build generates (and the Gradle cache) owned by you,
+#    never root:
+#      - Podman: --userns=keep-id
+#      - Docker: --user <uid>:<gid>
+#    If the container runs as root it leaves root-owned folders in the
+#    workspace, which then make actions/cache's hashFiles() fail on CI
+#    ("Fail to hash files under directory ...").
 RUN_ARGS=()
 if [ "$ENGINE" = "podman" ]; then
   RUN_ARGS+=(--userns=keep-id)
+else
+  RUN_ARGS+=(--user "$(id -u):$(id -g)")
 fi
 
 # 3) Point Gradle at the SDK inside the container without touching your own
