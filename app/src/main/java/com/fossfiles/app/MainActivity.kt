@@ -28,9 +28,6 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
-    // getExternalStorageDirectory() está deprecado en API 29+, pero sigue siendo la
-    // única forma de obtener la raíz del almacenamiento compartido con acceso total.
-    @Suppress("DEPRECATION")
     private val viewModel: FileViewModel by viewModels {
         object : ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
@@ -81,7 +78,12 @@ class MainActivity : ComponentActivity() {
 
                 // Vuelve a comprobar el permiso cuando la app regresa a primer plano
                 // (por ejemplo, tras volver de la pantalla de Ajustes).
-                DisposableLifecycleCheck { hasPermission = hasStoragePermission() }
+                DisposableLifecycleCheck {
+                    hasPermission = hasStoragePermission()
+                    // Al volver a la app (p. ej. tras conceder el permiso o descargar algo) se
+                    // actualizan los recientes y el almacenamiento del Home.
+                    if (hasPermission && viewModel.screenMode.value == ScreenMode.HOME) viewModel.refreshHome()
+                }
             }
         }
     }

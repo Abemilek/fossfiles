@@ -41,9 +41,20 @@ Google services (GMS), light and fast**.
   screen and Android's own keyboard/gesture animations.
 
 ## Features
-- Browse folders, go up a level, search by name (up to 6 levels deep; the previous search is cancelled as you keep typing)
+- A **Home screen** with storage info, **quick access** to the usual folders (Downloads, DCIM,
+  Pictures, Documents, Music, Movies when they exist) and a **Recents** list of the latest files
+- Browse folders, go up a level, and search by name (up to 6 levels deep; the previous search is
+  cancelled as you keep typing)
+- **List or grid view** you can switch anytime (also inside photo/video categories), with on-demand
+  **thumbnails** for images and videos generated from pure system APIs (nothing extra in the APK)
 - Sort by name, date, size or type (folders always first)
-- **Multi-selection** (long-press): copy, cut, rename (one at a time), delete and select all
+- **Show/hide hidden files** — and your sort mode, view and hidden-file choice are **remembered**
+  between sessions
+- **Multi-selection** (long-press): copy, cut, rename (one at a time), **share**, delete and select all
+- **ZIP compression and extraction**: compress any selection into a `.zip`, extract ZIPs safely
+  (rejects archives that try to escape the extraction folder, checks free space first)
+- **Details**: size, type, location and modification date — folders count their files, subfolders
+  and total bytes (computed in the background)
 - Create a folder, paste into the current folder
 - Copy without overwriting: if the name exists, it creates `name (1)`, `name (2)`…
 - Move = instant rename on the same volume (copy + delete only when crossing volumes)
@@ -77,6 +88,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 > The release build is signed with the **debug key** so you can install and test the optimized build
 > without creating a keystore. Replace `signingConfigs.getByName("debug")` in `app/build.gradle.kts`
 > with your real signing config before publishing anywhere.
+>
+> There is a **single universal APK**: the app is pure Kotlin with no native libraries, so
+> per-architecture APKs would be identical anyway. Only the strings for Spanish + English are
+> packaged, which keeps the APK small.
 
 ## Build with Android Studio
 1. Open the `fossfiles/` folder in Android Studio (Hedgehog or newer).
@@ -90,7 +105,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Don't want to install a JDK, the Android SDK, Gradle or Kotlin? You only need **Podman** (or Docker):
 
 ```bash
-./build-in-container.sh                    # release APKs (default)
+./build-in-container.sh                    # release APK (default)
 ./build-in-container.sh assembleDebug      # any Gradle task
 ./build-in-container.sh testDebugUnitTest  # run the JVM tests
 ENGINE=docker ./build-in-container.sh      # use Docker instead of Podman
@@ -109,20 +124,23 @@ The file logic (`FileRepository`) does not depend on Android and has JVM tests:
 ```
 
 They cover: invalid names, copy-without-overwrite, moving to the same folder, a folder inside itself,
-deleting without following symlinks, search depth and cancellation, and list ordering.
+deleting without following symlinks, search depth and cancellation, list ordering, filtering hidden
+files, measuring folder contents, and ZIP compression/extraction (including rejecting archives that
+try to write outside the extraction folder).
 
 ## Behavior notes
 - Symlinks are never followed: copy/move skip them and delete removes only the link.
 - Search shows at most 5,000 results and warns you when there are more.
 - Cut and paste across volumes (e.g. to an SD card) copies and then deletes; if the original could not
   be deleted, the app tells you instead of failing silently.
+- Folders cannot be shared directly: compress them to a ZIP first.
+- ZIP extraction creates a new folder next to the archive (`name`, then `name (1)`, `name (2)`… if it
+  already exists) and never overwrites anything.
 
 ## Possible next steps
-- Image/video thumbnails (using the platform API, no third-party libraries)
-- Shortcut bar to Downloads, DCIM, etc. and a Recents section
-- Show/hide hidden files, grid view, ZIP compress/extract
-- Share with other apps and file details/properties
 - Sign the release APK with your own keystore for publishing (today it uses the debug key)
+- Search inside file contents (text documents)
+- Browsing inside a ZIP without extracting it
 
 ## License
 

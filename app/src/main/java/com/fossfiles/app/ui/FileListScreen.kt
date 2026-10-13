@@ -1,9 +1,8 @@
 package com.fossfiles.app.ui
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -11,25 +10,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fossfiles.app.FileDetails
 import com.fossfiles.app.FileItem
-import com.fossfiles.app.FileKind
 import com.fossfiles.app.FileViewModel
 import com.fossfiles.app.SortMode
 import com.fossfiles.app.formatSize
-import com.fossfiles.app.kind
+import com.fossfiles.app.mimeTypeOf
 import com.fossfiles.app.openFileExternally
-import java.text.SimpleDateFormat
+import com.fossfiles.app.shareFiles
 import java.util.Date
-import java.util.Locale
 
 private enum class SelectionDialog { RENAME, DELETE }
 
-/** Navegador de carpetas: buscar, ordenar, crear carpeta y pegar. */
+/** Navegador de carpetas: buscar, ordenar, ver como lista o cuadrícula, ocultos, crear carpeta y pegar. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
@@ -39,10 +36,12 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val searchQuery by viewModel.searchQuery
     val clipboard by viewModel.clipboard
     val selection by viewModel.selection
+    val grid by viewModel.gridView
+    val details by viewModel.details
     val busy = viewModel.isLoading.value || viewModel.isWorking.value
 
     var showNewFolderDialog by remember { mutableStateOf(false) }
-    var showSort by remember { mutableStateOf(false) }
+    var showOptions by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<SelectionDialog?>(null) }
 
     val selected = items.filter { it.file.absolutePath in selection }
@@ -51,13 +50,12 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         Scaffold(
             topBar = {
                 if (selection.isNotEmpty()) {
-                    SelectionBar(
+                    SelectionTopBar(
                         count = selection.size,
-                        onClose = { viewModel.clearSelection() },
-                        onSelectAll = { viewModel.selectAll() },
-                        onCopy = { viewModel.copySelectedToClipboard() },
-                        onCut = { viewModel.cutSelectedToClipboard() },
-                        onRename = if (selected.size == 1) ({ dialog = SelectionDialog.RENAME }) else null,
+                        selected = selected,
+                        inBrowse = true,
+                        viewModel = viewModel,
+                        onRename = { dialog = SelectionDialog.RENAME },
                         onDelete = { dialog = SelectionDialog.DELETE }
                     )
                 } else {
@@ -71,7 +69,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                                 if (clipboard.isNotEmpty()) {
                                     IconAction(Icons.Default.ContentPaste, "Pegar ${clipboard.size}") { viewModel.pasteHere() }
                                 }
-                                IconAction(Icons.AutoMirrored.Filled.Sort, "Ordenar") { showSort = !showSort }
+                                IconAction(Icons.AutoMirrored.Filled.Sort, "Opciones de vista") { showOptions = !showOptions }
                                 IconAction(Icons.Default.CreateNewFolder, "Nueva carpeta") { showNewFolderDialog = true }
                             }
                         )
@@ -83,12 +81,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                             onClear = { viewModel.setSearch("") },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                         )
-                        if (showSort) {
-                            SortRow(current = viewModel.sortMode.value) {
-                                viewModel.setSort(it)
-                                showSort = false
-                            }
-                        }
+                        if (showOptions) OptionsRow(viewModel)
                     }
                 }
             }
@@ -98,9 +91,10 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 if (!busy && items.isEmpty()) {
                     EmptyMessage(if (searchQuery.isNotBlank()) "Sin resultados" else "Carpeta vacía")
                 }
-                FileList(
+                FileCollection(
                     items = items,
                     selection = selection,
+                    grid = grid,
                     onOpen = { item ->
                         if (item.isDirectory) viewModel.openDirectory(item.file)
                         else openFileExternally(context, item.file)?.let { viewModel.message.value = it }
@@ -122,6 +116,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             )
         }
         SelectionDialogs(viewModel, selected, dialog) { dialog = null }
+        details?.let { DetailsDialog(it) { viewModel.closeDetails() } }
     }
 }
 
@@ -136,6 +131,8 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val items by viewModel.items
     val title by viewModel.categoryTitle
     val selection by viewModel.selection
+    val grid by viewModel.gridView
+    val details by viewModel.details
     val busy = viewModel.isLoading.value || viewModel.isWorking.value
     var dialog by remember { mutableStateOf<SelectionDialog?>(null) }
 
@@ -145,19 +142,24 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         Scaffold(
             topBar = {
                 if (selection.isNotEmpty()) {
-                    SelectionBar(
+                    SelectionTopBar(
                         count = selection.size,
-                        onClose = { viewModel.clearSelection() },
-                        onSelectAll = { viewModel.selectAll() },
-                        onCopy = { viewModel.copySelectedToClipboard() },
-                        onCut = { viewModel.cutSelectedToClipboard() },
-                        onRename = if (selected.size == 1) ({ dialog = SelectionDialog.RENAME }) else null,
+                        selected = selected,
+                        inBrowse = false,
+                        viewModel = viewModel,
+                        onRename = { dialog = SelectionDialog.RENAME },
                         onDelete = { dialog = SelectionDialog.DELETE }
                     )
                 } else {
                     TopAppBar(
                         title = { Text(title) },
-                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) }
+                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) },
+                        actions = {
+                            IconAction(
+                                if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
+                                if (grid) "Ver como lista" else "Ver como cuadrícula"
+                            ) { viewModel.toggleGrid() }
+                        }
                     )
                 }
             }
@@ -165,15 +167,17 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             Column(Modifier.padding(padding)) {
                 StatusLine(busy)
                 if (!busy && items.isEmpty()) EmptyMessage("No se encontró nada en esta categoría")
-                FileList(
+                FileCollection(
                     items = items,
                     selection = selection,
+                    grid = grid,
                     onOpen = { item -> openFileExternally(context, item.file)?.let { viewModel.message.value = it } },
                     onToggle = { viewModel.toggleSelection(it) }
                 )
             }
         }
         SelectionDialogs(viewModel, selected, dialog) { dialog = null }
+        details?.let { DetailsDialog(it) { viewModel.closeDetails() } }
     }
 }
 
@@ -210,52 +214,127 @@ private fun SelectionDialogs(
     }
 }
 
+/**
+ * Barra superior en modo selección. Las acciones frecuentes (copiar, cortar, eliminar) van
+ * como íconos; el resto sale en una segunda fila de texto (sin menú desplegable animado).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SelectionBar(
+private fun SelectionTopBar(
     count: Int,
-    onClose: () -> Unit,
-    onSelectAll: () -> Unit,
-    onCopy: () -> Unit,
-    onCut: () -> Unit,
-    onRename: (() -> Unit)?,
+    selected: List<FileItem>,
+    inBrowse: Boolean,
+    viewModel: FileViewModel,
+    onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    TopAppBar(
-        title = { Text(if (count == 1) "1 seleccionado" else "$count seleccionados", maxLines = 1) },
-        navigationIcon = { IconAction(Icons.Default.Close, "Cancelar selección", onClose) },
-        actions = {
-            IconAction(Icons.Default.SelectAll, "Seleccionar todo", onSelectAll)
-            IconAction(Icons.Default.ContentCopy, "Copiar", onCopy)
-            IconAction(Icons.Default.ContentCut, "Cortar", onCut)
-            if (onRename != null) IconAction(Icons.Default.DriveFileRenameOutline, "Renombrar", onRename)
-            IconAction(Icons.Default.Delete, "Eliminar", onDelete)
+    val context = LocalContext.current
+    // Se reinicia (a cerrada) cada vez que la selección se vacía y vuelve a empezar.
+    var showMore by remember(count > 0) { mutableStateOf(false) }
+
+    val extra = buildList<Pair<String, () -> Unit>> {
+        add("Seleccionar todo" to { viewModel.selectAll() })
+        if (selected.size == 1) add("Renombrar" to onRename)
+        add("Compartir" to {
+            shareFiles(context, selected.map { it.file })?.let { viewModel.message.value = it }
+        })
+        if (inBrowse) add("Comprimir" to { viewModel.compressSelected() })
+        if (inBrowse && selected.any { !it.isDirectory && it.file.extension.equals("zip", ignoreCase = true) }) {
+            add("Extraer" to { viewModel.extractSelected() })
         }
-    )
+        if (selected.size == 1) add("Detalles" to { viewModel.showDetails(selected.first().file) })
+    }
+
+    Column {
+        TopAppBar(
+            title = { Text(if (count == 1) "1 seleccionado" else "$count seleccionados", maxLines = 1) },
+            navigationIcon = { IconAction(Icons.Default.Close, "Cancelar selección") { viewModel.clearSelection() } },
+            actions = {
+                IconAction(Icons.Default.ContentCopy, "Copiar") { viewModel.copySelectedToClipboard() }
+                IconAction(Icons.Default.ContentCut, "Cortar") { viewModel.cutSelectedToClipboard() }
+                IconAction(Icons.Default.Delete, "Eliminar", onDelete)
+                IconAction(Icons.Default.MoreVert, "Más acciones") { showMore = !showMore }
+            }
+        )
+        if (showMore) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
+                extra.forEach { (label, action) ->
+                    PlainTextButton(label) {
+                        action()
+                        showMore = false
+                    }
+                }
+            }
+        }
+    }
 }
 
+/** Ordenar, tipo de vista y archivos ocultos, en una fila que se desplaza de lado. */
 @Composable
-private fun SortRow(current: SortMode, onSelect: (SortMode) -> Unit) {
-    val options = listOf(
+private fun OptionsRow(viewModel: FileViewModel) {
+    val sort by viewModel.sortMode
+    val grid by viewModel.gridView
+    val hidden by viewModel.showHidden
+    val sorts = listOf(
         SortMode.NAME to "Nombre",
         SortMode.DATE to "Fecha",
         SortMode.SIZE to "Tamaño",
         SortMode.TYPE to "Tipo"
     )
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Ordenar:", style = MaterialTheme.typography.bodyMedium)
-        options.forEach { (mode, label) ->
-            val active = mode == current
-            Text(
-                text = label,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                modifier = Modifier.plainClickable { onSelect(mode) }.padding(horizontal = 10.dp, vertical = 10.dp)
-            )
+        sorts.forEach { (mode, label) ->
+            OptionText(label, active = mode == sort) { viewModel.setSort(mode) }
         }
+        Spacer(Modifier.width(12.dp))
+        OptionText(if (grid) "Vista: cuadrícula" else "Vista: lista", active = false) { viewModel.toggleGrid() }
+        OptionText(if (hidden) "Ocultos: sí" else "Ocultos: no", active = hidden) { viewModel.toggleHidden() }
+    }
+}
+
+@Composable
+private fun OptionText(label: String, active: Boolean, onClick: () -> Unit) {
+    Text(
+        text = label,
+        maxLines = 1,
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+        modifier = Modifier.plainClickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp)
+    )
+}
+
+@Composable
+private fun DetailsDialog(details: FileDetails, onDismiss: () -> Unit) {
+    val dateFmt = rememberDateFormat()
+    val file = details.file
+    ModalOverlay(onDismiss = onDismiss) {
+        Text(file.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(12.dp))
+        DetailRow("Ubicación", file.parent ?: "/")
+        DetailRow("Tipo", if (details.isDirectory) "Carpeta" else (mimeTypeOf(file) ?: "Archivo"))
+        DetailRow(
+            "Tamaño",
+            if (!details.ready) "Calculando…"
+            else "${formatSize(details.sizeBytes)} (${"%,d".format(details.sizeBytes)} bytes)"
+        )
+        if (details.isDirectory && details.ready) {
+            DetailRow("Contenido", "${details.files} archivos, ${details.folders} carpetas")
+        }
+        DetailRow("Modificado", dateFmt.format(Date(details.lastModified)))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            PlainTextButton("Cerrar", onDismiss)
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(Modifier.padding(bottom = 10.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value)
     }
 }
 
@@ -275,73 +354,5 @@ private fun StatusLine(busy: Boolean) {
 private fun EmptyMessage(text: String) {
     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun FileList(
-    items: List<FileItem>,
-    selection: Set<String>,
-    onOpen: (FileItem) -> Unit,
-    onToggle: (FileItem) -> Unit
-) {
-    val selecting = selection.isNotEmpty()
-    val dateFmt = remember { SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()) }
-    LazyColumn {
-        items(items, key = { it.file.absolutePath }) { item ->
-            FileRow(
-                item = item,
-                selected = item.file.absolutePath in selection,
-                dateFmt = dateFmt,
-                onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                onLongClick = { onToggle(item) }
-            )
-            HorizontalDivider()
-        }
-    }
-}
-
-private fun iconFor(item: FileItem): ImageVector = when (item.kind()) {
-    FileKind.FOLDER -> Icons.Default.Folder
-    FileKind.IMAGE -> Icons.Default.Image
-    FileKind.VIDEO -> Icons.Default.Movie
-    FileKind.AUDIO -> Icons.Default.AudioFile
-    FileKind.DOCUMENT -> Icons.Default.Description
-    FileKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
-}
-
-@Composable
-private fun FileRow(
-    item: FileItem,
-    selected: Boolean,
-    dateFmt: SimpleDateFormat,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val highlight = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-    else androidx.compose.ui.graphics.Color.Transparent
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(highlight)
-            .plainClickable(onLongClick = onLongClick, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = if (selected) Icons.Default.CheckCircle else iconFor(item),
-            contentDescription = if (selected) "Seleccionado" else null,
-            tint = if (selected) MaterialTheme.colorScheme.primary else LocalContentColor.current,
-            modifier = Modifier.size(32.dp)
-        )
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                text = if (item.isDirectory) dateFmt.format(Date(item.lastModified))
-                       else "${formatSize(item.sizeBytes)} · ${dateFmt.format(Date(item.lastModified))}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
     }
 }

@@ -1,7 +1,10 @@
 package com.fossfiles.app
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.MediaStore
 import java.io.File
 
@@ -33,21 +36,34 @@ object MediaStoreScanner {
         }
     }
 
-    // MediaStore.MediaColumns.DATA está deprecado, pero es la vía para obtener rutas
-    // reales de archivo (la app tiene acceso total, no usa SAF).
-    @Suppress("DEPRECATION")
-    private fun query(context: Context, uri: android.net.Uri): List<FileItem> {
+    /** Los últimos archivos modificados de cualquier tipo (sin ocultos ni datos de otras apps). */
+    fun recent(context: Context, limit: Int = 12): List<FileItem> {
+        val data = MediaStore.MediaColumns.DATA
+        val selection = "${MediaStore.MediaColumns.MIME_TYPE} IS NOT NULL" +
+            " AND $data NOT LIKE '%/.%'" +
+            " AND $data NOT LIKE '%/Android/%'"
+        return query(context, MediaStore.Files.getContentUri("external"), selection, limit)
+    }
+
+    private fun query(
+        context: Context,
+        uri: Uri,
+        selection: String? = null,
+        limit: Int? = null
+    ): List<FileItem> {
         val results = mutableListOf<FileItem>()
         val projection = arrayOf(
             MediaStore.MediaColumns.DATA,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DATE_MODIFIED
         )
+        val args = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, "${MediaStore.MediaColumns.DATE_MODIFIED} DESC")
+            if (selection != null) putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            if (limit != null) putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+        }
         try {
-            context.contentResolver.query(
-                uri, projection, null, null,
-                "${MediaStore.MediaColumns.DATE_MODIFIED} DESC"
-            )?.use { cursor ->
+            context.contentResolver.query(uri, projection, args, null)?.use { cursor ->
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                 val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
                 val dateCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
@@ -55,7 +71,7 @@ object MediaStoreScanner {
                     val path = cursor.getString(dataCol) ?: continue
                     val file = File(path)
                     // El índice puede ir un poco por detrás del disco: se descarta lo que ya no existe.
-                    if (!file.exists()) continue
+                    if (!file.isFile) continue
                     // Tamaño y fecha vienen del índice: evita 2 llamadas al sistema por archivo.
                     results.add(
                         FileItem(

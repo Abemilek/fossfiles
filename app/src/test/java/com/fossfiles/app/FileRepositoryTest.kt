@@ -7,6 +7,8 @@ import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /** Pruebas de JVM pura (sin Android): `./gradlew testDebugUnitTest`. */
 class FileRepositoryTest {
@@ -162,5 +164,67 @@ class FileRepositoryTest {
         assertEquals("0 B", formatSize(0))
         assertEquals("1.0 KB".replace('.', ','), formatSize(1024).replace('.', ','))
         assertEquals(FileKind.IMAGE, FileItem(File("x.JPG"), isDirectory = false, sizeBytes = 0, lastModified = 0).kind())
+    }
+
+    @Test
+    fun ocultos_seFiltranEnListadoYBusqueda() = withTempDir { root ->
+        root.file(".secreto.txt")
+        root.file("visible.txt")
+        root.file(".oculta/needle.txt")
+        root.file("normal/needle.txt")
+        assertEquals(listOf("visible.txt"), FileRepository.listDirectory(root, showHidden = false).map { it.name }.filter { it.endsWith(".txt") })
+        assertEquals(4, FileRepository.listDirectory(root, showHidden = true).size)
+        assertEquals(1, FileRepository.search(root, "needle", showHidden = false).items.size)
+        assertEquals(2, FileRepository.search(root, "needle", showHidden = true).items.size)
+    }
+
+    @Test
+    fun measure_cuentaArchivosCarpetasYBytes() = withTempDir { root ->
+        root.file("a/uno.txt", "12345")
+        root.file("a/b/dos.txt", "123")
+        val stats = FileRepository.measure(root)
+        assertEquals(2, stats.files)
+        assertEquals(2, stats.folders)
+        assertEquals(8L, stats.bytes)
+        assertEquals(1, FileRepository.measure(File(root, "a/uno.txt")).files)
+    }
+
+    @Test
+    fun zip_yUnzip_ciclocompleto() = withTempDir { root ->
+        val d = root.dir("proyecto")
+        root.file("proyecto/leeme.txt", "hola")
+        root.file("proyecto/sub/datos.bin", "0123456789")
+        val zip = FileRepository.zip(listOf(d), root)
+        assertEquals("proyecto.zip", zip.name)
+        assertTrue(zip.length() > 0)
+
+        val out = FileRepository.unzip(zip)
+        assertEquals("proyecto (1)", out.name) // "proyecto" ya existe: no se pisa
+        assertEquals("hola", File(out, "proyecto/leeme.txt").readText())
+        assertEquals("0123456789", File(out, "proyecto/sub/datos.bin").readText())
+        assertEquals("proyecto (2)", FileRepository.unzip(zip).name)
+    }
+
+    @Test
+    fun zip_variosArchivos_yNombreRepetido() = withTempDir { root ->
+        val a = root.file("a.txt")
+        val b = root.file("b.txt")
+        assertEquals("Archivo.zip", FileRepository.zip(listOf(a, b), root).name)
+        assertEquals("a.zip", FileRepository.zip(listOf(a), root).name)
+        val other = root.dir("otra").file("a.txt")
+        expectError { FileRepository.zip(listOf(a, other), root) }
+        expectError { FileRepository.zip(emptyList(), root) }
+    }
+
+    @Test
+    fun unzip_rechazaRutasQueEscapan_yNoDejaBasura() = withTempDir { root ->
+        val evil = File(root, "evil.zip")
+        ZipOutputStream(evil.outputStream()).use { z ->
+            z.putNextEntry(ZipEntry("ok.txt")); z.write("ok".toByteArray()); z.closeEntry()
+            z.putNextEntry(ZipEntry("../escapado.txt")); z.write("mal".toByteArray()); z.closeEntry()
+        }
+        expectError { FileRepository.unzip(evil) }
+        assertFalse(File(root, "escapado.txt").exists())
+        assertFalse(File(root, "evil").exists())
     }
 }

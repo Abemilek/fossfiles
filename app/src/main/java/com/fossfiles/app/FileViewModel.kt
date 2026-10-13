@@ -16,6 +16,20 @@ import java.io.File
 enum class ScreenMode { HOME, BROWSE, CATEGORY }
 enum class Category(val label: String) { IMAGES("Fotos"), VIDEOS("Videos"), AUDIO("Audio"), DOWNLOADS("Descargas"), DOCUMENTS("Documentos") }
 
+/** Acceso rápido a una carpeta conocida del almacenamiento. */
+data class QuickLink(val label: String, val dir: File)
+
+/** Datos de la ventana de detalles. En carpetas, [ready] pasa a true cuando termina de medir. */
+data class FileDetails(
+    val file: File,
+    val isDirectory: Boolean,
+    val sizeBytes: Long,
+    val files: Int,
+    val folders: Int,
+    val lastModified: Long,
+    val ready: Boolean
+)
+
 private class Loaded(val items: List<FileItem>, val notice: String? = null)
 
 // appContext: SIEMPRE el applicationContext, nunca el de la Activity — así el
@@ -24,19 +38,30 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     private val root = rootDir
 
+    // Preferencias solo locales (SharedPreferences privado de la app): vista, ocultos y orden.
+    private val prefs = appContext.getSharedPreferences("fossfiles", Context.MODE_PRIVATE)
+
     // Solo hay una carga (listado, búsqueda o categoría) viva a la vez: al lanzar otra,
     // la anterior se cancela de verdad (incluido el recorrido de disco), así una búsqueda
     // vieja nunca puede pisar los resultados de una nueva.
     private var loadJob: Job? = null
+    private var detailsJob: Job? = null
 
     val screenMode = mutableStateOf(ScreenMode.HOME)
     val isLoading = mutableStateOf(false)
-    val isWorking = mutableStateOf(false) // copiando / moviendo / borrando
+    val isWorking = mutableStateOf(false) // copiando / moviendo / borrando / comprimiendo
     val storageInfo = mutableStateOf(StorageInfo(0, 0))
+
+    val quickLinks = mutableStateOf<List<QuickLink>>(emptyList())
+    val recent = mutableStateOf<List<FileItem>>(emptyList())
 
     val currentDir = mutableStateOf(rootDir)
     val items = mutableStateOf<List<FileItem>>(emptyList())
-    val sortMode = mutableStateOf(SortMode.NAME)
+    val sortMode = mutableStateOf(
+        try { SortMode.valueOf(prefs.getString("sort", null) ?: "NAME") } catch (e: IllegalArgumentException) { SortMode.NAME }
+    )
+    val gridView = mutableStateOf(prefs.getBoolean("grid", false))
+    val showHidden = mutableStateOf(prefs.getBoolean("hidden", false))
     val searchQuery = mutableStateOf("")
 
     val currentCategory = mutableStateOf<Category?>(null)
@@ -48,17 +73,40 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     val clipboard = mutableStateOf<List<File>>(emptyList())
     val clipboardIsCut = mutableStateOf(false)
 
+    val details = mutableStateOf<FileDetails?>(null)
+
     /** Mensaje de error/aviso para mostrar una vez; la UI lo limpia con [dismissMessage]. */
     val message = mutableStateOf<String?>(null)
 
     init {
-        loadStorageInfo()
+        refreshHome()
     }
 
     private fun loadStorageInfo() {
         viewModelScope.launch {
             val info = withContext(Dispatchers.IO) { StorageStats.read(root) }
             storageInfo.value = info
+        }
+    }
+
+    /** Actualiza lo que muestra el Home: almacenamiento, accesos rápidos y recientes. */
+    fun refreshHome() {
+        loadStorageInfo()
+        viewModelScope.launch {
+            val (links, latest) = withContext(Dispatchers.IO) {
+                val known = listOf(
+                    "Descargas" to "Download",
+                    "Cámara" to "DCIM",
+                    "Imágenes" to "Pictures",
+                    "Documentos" to "Documents",
+                    "Música" to "Music",
+                    "Películas" to "Movies"
+                )
+                val existing = known.map { QuickLink(it.first, File(root, it.second)) }.filter { it.dir.isDirectory }
+                existing to MediaStoreScanner.recent(appContext)
+            }
+            quickLinks.value = links
+            recent.value = latest
         }
     }
 
@@ -72,7 +120,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val job = viewModelScope.launch {
             try {
                 if (debounceMs > 0) delay(debounceMs)
-                val loaded = withContext(Dispatchers.IO) { work { this@launch.isActive } }
+                val loaded = withContext(Dispatchers.IO) { work { isActive } }
                 items.value = loaded.items
                 // Si algo de lo seleccionado ya no está en la lista, se quita de la selección.
                 if (selection.value.isNotEmpty()) {
@@ -96,11 +144,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val dir = currentDir.value
         val query = searchQuery.value.trim()
         val mode = sortMode.value
+        val hidden = showHidden.value
         launchLoad(debounceMs) { active ->
             if (query.isEmpty()) {
-                Loaded(FileRepository.listDirectory(dir, mode))
+                Loaded(FileRepository.listDirectory(dir, mode, hidden))
             } else {
-                val r = FileRepository.search(dir, query, mode, active)
+                val r = FileRepository.search(dir, query, mode, active, hidden)
                 Loaded(
                     r.items,
                     if (r.truncated) "Mostrando solo los primeros ${FileRepository.MAX_SEARCH_RESULTS} resultados" else null
@@ -111,6 +160,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     private fun loadCategory(category: Category) {
         val downloads = File(root, "Download")
+        val hidden = showHidden.value
         launchLoad { active ->
             Loaded(
                 when (category) {
@@ -121,13 +171,14 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                         // En versiones viejas de Android MediaStore.Downloads no existe:
                         // se cae a leer la carpeta directamente.
                         MediaStoreScanner.downloads(appContext).ifEmpty {
-                            FileRepository.scanCategory(listOf(downloads), null, maxDepth = 1, isActive = active)
+                            FileRepository.scanCategory(listOf(downloads), null, 1, active, hidden)
                         }
                     Category.DOCUMENTS -> FileRepository.scanCategory(
                         listOf(File(root, "Documents"), downloads),
                         DOCUMENT_EXTENSIONS,
-                        maxDepth = 2,
-                        isActive = active
+                        2,
+                        active,
+                        hidden
                     )
                 }
             )
@@ -139,7 +190,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         when (screenMode.value) {
             ScreenMode.BROWSE -> loadDirectory()
             ScreenMode.CATEGORY -> currentCategory.value?.let { loadCategory(it) }
-            ScreenMode.HOME -> loadStorageInfo()
+            ScreenMode.HOME -> refreshHome()
         }
     }
 
@@ -151,12 +202,17 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         clearSelection()
         screenMode.value = ScreenMode.HOME
         searchQuery.value = ""
-        loadStorageInfo()
+        refreshHome()
     }
 
     fun openInternalStorage() {
         screenMode.value = ScreenMode.BROWSE
         openDirectory(root)
+    }
+
+    fun openQuickLink(link: QuickLink) {
+        screenMode.value = ScreenMode.BROWSE
+        openDirectory(link.dir)
     }
 
     fun openCategory(category: Category) {
@@ -185,9 +241,23 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         }
     }
 
+    // ---------- Preferencias de vista ----------
+
     fun setSort(mode: SortMode) {
         sortMode.value = mode
+        prefs.edit().putString("sort", mode.name).apply()
         loadDirectory()
+    }
+
+    fun toggleGrid() {
+        gridView.value = !gridView.value
+        prefs.edit().putBoolean("grid", gridView.value).apply()
+    }
+
+    fun toggleHidden() {
+        showHidden.value = !showHidden.value
+        prefs.edit().putBoolean("hidden", showHidden.value).apply()
+        reload()
     }
 
     fun setSearch(query: String) {
@@ -279,5 +349,49 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val cut = clipboardIsCut.value
         clipboard.value = emptyList()
         runBatch(sources) { if (cut) FileRepository.move(it, dest) else FileRepository.copy(it, dest) }
+    }
+
+    /** Comprime lo seleccionado en un .zip dentro de la carpeta actual. */
+    fun compressSelected() {
+        if (screenMode.value != ScreenMode.BROWSE) return
+        val files = selectedFiles()
+        val dest = currentDir.value
+        clearSelection()
+        runBatch(listOf(dest)) { FileRepository.zip(files, it) }
+    }
+
+    /** Extrae cada ZIP seleccionado en una carpeta nueva junto a él. */
+    fun extractSelected() {
+        val zips = selectedFiles().filter { it.isFile && it.extension.equals("zip", ignoreCase = true) }
+        clearSelection()
+        runBatch(zips) { FileRepository.unzip(it) }
+    }
+
+    // ---------- Detalles ----------
+
+    fun showDetails(file: File) {
+        detailsJob?.cancel()
+        val isDir = file.isDirectory
+        details.value = FileDetails(
+            file = file,
+            isDirectory = isDir,
+            sizeBytes = if (isDir) 0L else file.length(),
+            files = 0,
+            folders = 0,
+            lastModified = file.lastModified(),
+            ready = !isDir
+        )
+        if (!isDir) return
+        // Medir una carpeta grande puede tardar: se hace aparte y se cancela si se cierra la ventana.
+        detailsJob = viewModelScope.launch {
+            val stats = withContext(Dispatchers.IO) { FileRepository.measure(file) { isActive } }
+            details.value = details.value?.takeIf { it.file == file }
+                ?.copy(sizeBytes = stats.bytes, files = stats.files, folders = stats.folders, ready = true)
+        }
+    }
+
+    fun closeDetails() {
+        detailsJob?.cancel()
+        details.value = null
     }
 }

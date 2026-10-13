@@ -11,8 +11,12 @@ android {
         applicationId = "com.fossfiles.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+
+        // La app está solo en español: no se empaquetan las traducciones de las librerías
+        // (Compose/AndroidX traen decenas de idiomas) -> APK más chico.
+        resourceConfigurations += listOf("es", "en")
     }
 
     buildTypes {
@@ -27,14 +31,20 @@ android {
         }
     }
 
-    // Genera un APK separado por arquitectura de CPU, más ligero que uno
-    // "universal" que carga las cuatro. Equivalente a `flutter build apk --split-per-abi`.
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true // además genera uno universal por si acaso
+    // Sin "splits" por arquitectura: la app es 100 % Kotlin, no lleva librerías nativas (.so),
+    // así que un APK por CPU saldría idéntico. Un solo APK, el más chico posible.
+
+    packaging {
+        resources {
+            // Archivos de metadatos de librerías que no hacen falta en el APK.
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "/META-INF/com.android.tools/**",
+                "/META-INF/proguard/**",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
         }
     }
 

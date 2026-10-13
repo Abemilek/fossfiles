@@ -27,9 +27,6 @@ private val LightColors = lightColorScheme()
 // Política de cero animaciones: la app no anima nada por sí misma (sin transiciones,
 // sin ripple, sin hojas ni menús que se deslizan). Aquí se apaga además el efecto de
 // "estirar" al llegar al final de una lista, que es una animación del sistema.
-// LocalOverscrollConfiguration está deprecado, pero su reemplazo (LocalOverscrollFactory)
-// solo existe en Compose 1.8+; se silencia el aviso manteniendo el comportamiento actual.
-@Suppress("DEPRECATION")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FossFilesTheme(content: @Composable () -> Unit) {
