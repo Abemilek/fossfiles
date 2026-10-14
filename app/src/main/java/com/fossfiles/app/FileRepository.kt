@@ -207,18 +207,24 @@ object FileRepository {
         query: String,
         sortMode: SortMode = SortMode.NAME,
         isActive: () -> Boolean = { true },
-        showHidden: Boolean = true
+        showHidden: Boolean = true,
+        filter: SearchFilter = SearchFilter()
     ): SearchResult {
         val needle = query.trim()
         val results = ArrayList<FileItem>()
         var truncated = false
+        val now = System.currentTimeMillis()
         walk(root, MAX_SEARCH_DEPTH, isActive, skipHidden = !showHidden) { f ->
+            // Con el texto vacío coincide todo: así se puede buscar solo por tipo, fecha o tamaño.
             if (f.name.contains(needle, ignoreCase = true)) {
-                if (results.size >= MAX_SEARCH_RESULTS) {
-                    truncated = true
-                    return@walk false
+                val item = FileItem(f)
+                if (filter.matches(item, now)) {
+                    if (results.size >= MAX_SEARCH_RESULTS) {
+                        truncated = true
+                        return@walk false
+                    }
+                    results.add(item)
                 }
-                results.add(FileItem(f))
             }
             true
         }

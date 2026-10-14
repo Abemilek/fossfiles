@@ -27,9 +27,9 @@ Google services (GMS), light and fast**.
   Android blocks any network connection at the OS level, so the app could not send data to any server
   even if the code tried to.
 - Zero third-party SDKs: no Firebase, Crashlytics, Analytics, Ads or Google Play Services.
-  Only AndroidX, Compose and kotlinx-coroutines. Thumbnails, the image viewer, ZIP, the trash bin and
-  sharing use only system APIs (`ThumbnailUtils`, `BitmapFactory`, `java.util.zip`, `FileProvider`).
-  JUnit is test-only and never ships in the APK.
+  Only AndroidX, Compose and kotlinx-coroutines. Thumbnails, the image viewer, the media player, ZIP,
+  the trash bin and sharing use only system APIs (`ThumbnailUtils`, `BitmapFactory`, `MediaPlayer`,
+  `java.util.zip`, `FileProvider`). JUnit is test-only and never ships in the APK.
 - Your settings, favorites and trash bin are stored on the device only.
 - Verify it on any built APK: `aapt2 dump permissions app-release.apk` must not list `INTERNET`.
 
@@ -37,7 +37,8 @@ Google services (GMS), light and fast**.
 - The app animates nothing on its own: no screen transitions, no touch ripple, no sliding sheets or
   menus, no indeterminate progress bars (which animate forever and drain battery).
 - Dialogs are just another layer of the screen (not system windows), so they appear instantly.
-- The image viewer switches photos and zooms without animating; it is driven by buttons and direct gestures.
+- The image viewer and the media player animate nothing: they switch photo/track instantly, zoom is
+  direct and the player controls are fixed (they never fade in or out).
 - Notices and errors show up in a fixed strip at the bottom (tap to dismiss), not in a Toast.
 - Limitations that belong to the system and cannot be removed from the app: the Android 12+ splash
   screen, Android's own keyboard/gesture animations and the "Share" chooser.
@@ -58,13 +59,24 @@ Google services (GMS), light and fast**.
   files. Sort, view and hidden-file choice are remembered.
 - **Built-in image viewer:** tap a photo to open it in the app, with zoom (pinch or double tap),
   previous/next buttons and "open with another app". It honors the EXIF orientation of camera photos.
+- **Built-in audio/video player:** tap an audio or video file to play it inside the app, with
+  previous/next, pause, a seek bar to jump anywhere and automatic advance to the next track in the
+  list. It requests audio focus (it pauses if another app takes it) and pauses when you leave the
+  app: there is no background service, so it does not drain battery. If the system cannot decode the
+  format (e.g. some MKV/AVI), there is an "open with another app" button. Videos keep the screen on.
 - **Favorites:** mark them from the "⋮" menu in a selection (they show a star and appear in the
   Favorites category; favorite folders open straight in the browser).
 - **Local trash bin:** deleting asks whether to move to trash or delete permanently. The trash keeps
   everything for **30 days** (then it empties itself), lets you **restore** to the original folder
   (recreating it if it no longer exists) and empty it. Sending to trash is instant (it copies nothing).
-- **Multi-selection** (long-press): copy, cut, delete and, in "⋮": select all, favorites, rename,
-  **share**, **compress to ZIP**, **extract ZIP** and **details**.
+- **Search by type, date and size:** the options bar has a *Filter* row (type: images, videos, audio,
+  documents, folders · date: 24 h, 7 days, 30 days, 1 year · size: > 1 MB, > 10 MB, > 100 MB, > 1 GB).
+  They combine with each other and with the text; with filters active it also searches subfolders (up
+  to 6 levels). Each tap moves to the next option. Changing folder resets them.
+- **Multi-selection** (long-press): copy, cut, delete and, in "⋮": select all, invert selection,
+  favorites, rename, **share**, **compress to ZIP**, **extract ZIP** and **details**.
+- **Range selection:** with a selection active, long-press another item and everything from the last
+  one you selected up to it gets marked (in list or grid).
 - Create a folder and paste. Copy never overwrites: if the name exists, it creates `name (1)`.
   Move is an instant rename on the same volume.
 - Back button: closes the viewer/selection, goes up a folder, or returns home.
@@ -133,17 +145,18 @@ signed with it.
 > per-CPU builds. Only the strings for Spanish + English are packaged, which keeps the APK small.
 
 ## Testing
-The file logic (`FileRepository`) and the trash bin (`TrashBin`) do not depend on Android and have
-JVM tests:
+The file logic (`FileRepository`), the trash bin (`TrashBin`) and the search filters (`SearchFilter`)
+do not depend on Android and have JVM tests:
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-They cover: invalid names, copy-without-overwrite, moving to the same folder, a folder inside itself,
-deleting without following symlinks, search (depth, cancellation, cycles), hidden files, measuring
-folder contents, ZIP (round-trip, duplicate names, rejecting paths that try to escape) and the trash
-bin (restore to origin, recreating the folder, name conflicts, purging by age, symlinks).
+They cover: filtering by type/date/size, invalid names, copy-without-overwrite, moving to the same
+folder, a folder inside itself, deleting without following symlinks, search (depth, cancellation,
+cycles), hidden files, measuring folder contents, ZIP (round-trip, duplicate names, rejecting paths
+that try to escape) and the trash bin (restore to origin, recreating the folder, name conflicts,
+purging by age, symlinks).
 
 ## Behavior notes
 - Symlinks are never followed: copy/move/ZIP skip them; deleting removes only the link (they don't go
@@ -158,9 +171,10 @@ bin (restore to origin, recreating the folder, name conflicts, purging by age, s
 - ZIP extraction creates a new folder next to the archive, rejects unsafe paths and stops if there is
   no free space.
 - The viewer does not open SVG (open those with another app).
+- The player uses the system codecs: whatever the phone cannot decode is opened with another app.
 
 ## Possible next steps
-- Audio/video playback in the app, search by type/date/size, range selection
+- Subtitles, playback speed and background playback (which would need a service with a notification)
 - Search inside file contents (text documents)
 - Browsing inside a ZIP without extracting it
 

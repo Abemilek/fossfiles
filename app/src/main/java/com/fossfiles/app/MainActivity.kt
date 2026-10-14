@@ -23,6 +23,7 @@ import com.fossfiles.app.ui.FileListScreen
 import com.fossfiles.app.ui.FossFilesTheme
 import com.fossfiles.app.ui.HomeScreen
 import com.fossfiles.app.ui.ImageViewer
+import com.fossfiles.app.ui.MediaPlayerOverlay
 import com.fossfiles.app.ui.TrashScreen
 import com.fossfiles.app.ui.MessageBanner
 import com.fossfiles.app.ui.PlainButton
@@ -81,6 +82,20 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
+                    // Reproductor de audio/video, también encima de todo.
+                    viewModel.media.value?.let { state ->
+                        MediaPlayerOverlay(
+                            state = state,
+                            controller = viewModel.player,
+                            onStep = { viewModel.mediaStep(it) },
+                            onOpenWith = { item ->
+                                viewModel.closeMedia()
+                                openFileExternally(this@MainActivity, item.file)?.let { viewModel.message.value = it }
+                            },
+                            onClose = { viewModel.closeMedia() }
+                        )
+                    }
+
                     // Aviso dentro de la app (un Toast del sistema se anima al aparecer y desaparecer).
                     message?.let { text ->
                         MessageBanner(
@@ -101,6 +116,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    // Al salir de la app (o apagar la pantalla) el audio/video se pausa: no hay servicio en segundo plano.
+    override fun onStop() {
+        super.onStop()
+        viewModel.pausePlayback()
     }
 
     private fun handleBack() {

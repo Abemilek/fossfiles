@@ -227,4 +227,28 @@ class FileRepositoryTest {
         assertFalse(File(root, "escapado.txt").exists())
         assertFalse(File(root, "evil").exists())
     }
+
+    @Test
+    fun filtros_porTipoFechaYTamano() = withTempDir { root ->
+        val day = 24L * 60 * 60 * 1000
+        val now = System.currentTimeMillis()
+        root.file("sub/foto.jpg", "x".repeat(2 * 1024 * 1024)).also { it.setLastModified(now - 2 * day) }
+        root.file("video.mp4", "x".repeat(10)).also { it.setLastModified(now - 40 * day) }
+        root.file("nota.txt", "hola").also { it.setLastModified(now) }
+        root.dir("carpeta")
+
+        fun names(f: SearchFilter) = FileRepository.search(root, "", filter = f).items.map { it.name }.sorted()
+
+        assertEquals(listOf("foto.jpg"), names(SearchFilter(type = TypeFilter.IMAGES)))
+        assertEquals(listOf("carpeta", "sub"), names(SearchFilter(type = TypeFilter.FOLDERS)))
+        assertEquals(listOf("foto.jpg"), names(SearchFilter(size = SizeFilter.OVER_1MB)))          // carpetas no cuentan
+        assertEquals(listOf("carpeta", "foto.jpg", "nota.txt", "sub"), names(SearchFilter(date = DateFilter.WEEK))) // carpetas creadas hoy
+        assertEquals(listOf("foto.jpg"), names(SearchFilter(type = TypeFilter.IMAGES, date = DateFilter.WEEK, size = SizeFilter.OVER_1MB)))
+        assertEquals(listOf<String>(), names(SearchFilter(type = TypeFilter.VIDEOS, date = DateFilter.WEEK)))
+        assertEquals(listOf("video.mp4"), names(SearchFilter(type = TypeFilter.VIDEOS)))
+        // texto + filtro a la vez
+        assertEquals(listOf("nota.txt"), FileRepository.search(root, "not", filter = SearchFilter(type = TypeFilter.DOCUMENTS)).items.map { it.name })
+        assertFalse(SearchFilter().isActive)
+        assertTrue(SearchFilter(size = SizeFilter.OVER_1GB).isActive)
+    }
 }

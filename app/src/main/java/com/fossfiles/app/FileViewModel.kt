@@ -21,6 +21,9 @@ enum class Category(val label: String) {
 /** Imágenes que se pueden recorrer en el visor y cuál se está viendo. */
 data class ViewerState(val images: List<FileItem>, val index: Int)
 
+/** Lista de audio/video del reproductor y cuál suena. */
+data class MediaState(val items: List<FileItem>, val index: Int)
+
 /** Acceso rápido a una carpeta conocida del almacenamiento. */
 data class QuickLink(val label: String, val dir: File)
 
@@ -54,6 +57,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     // vieja nunca puede pisar los resultados de una nueva.
     private var loadJob: Job? = null
     private var detailsJob: Job? = null
+    private var anchorPath: String? = null // último elemento marcado: punto de partida de la selección por rango
 
     val screenMode = mutableStateOf(ScreenMode.HOME)
     val isLoading = mutableStateOf(false)
@@ -83,6 +87,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     val details = mutableStateOf<FileDetails?>(null)
     val viewer = mutableStateOf<ViewerState?>(null)
+
+    val media = mutableStateOf<MediaState?>(null)
+    // Al terminar una pista pasa sola a la siguiente de la lista (si hay).
+    val player = PlayerController(appContext) { advanceAfterCompletion() }
+
+    val filter = mutableStateOf(SearchFilter())
 
     /** Rutas absolutas de los favoritos (guardadas solo en el almacenamiento privado de la app). */
     val favorites = mutableStateOf<Set<String>>(HashSet(prefs.getStringSet("fav", emptySet()) ?: emptySet()))
@@ -162,11 +172,13 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val query = searchQuery.value.trim()
         val mode = sortMode.value
         val hidden = showHidden.value
+        val activeFilter = filter.value
         launchLoad(debounceMs) { active ->
-            if (query.isEmpty()) {
+            if (query.isEmpty() && !activeFilter.isActive) {
                 Loaded(FileRepository.listDirectory(dir, mode, hidden))
             } else {
-                val r = FileRepository.search(dir, query, mode, active, hidden)
+                // Con texto o con filtros activos se busca también en las subcarpetas.
+                val r = FileRepository.search(dir, query, mode, active, hidden, activeFilter)
                 Loaded(
                     r.items,
                     if (r.truncated) "Mostrando solo los primeros ${FileRepository.MAX_SEARCH_RESULTS} resultados" else null
@@ -232,6 +244,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         trashSelection.value = emptySet()
         screenMode.value = ScreenMode.HOME
         searchQuery.value = ""
+        filter.value = SearchFilter()
         refreshHome()
     }
 
@@ -260,6 +273,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         clearSelection()
         currentDir.value = dir
         searchQuery.value = ""
+        filter.value = SearchFilter()
         loadDirectory()
     }
 
@@ -301,11 +315,59 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         loadDirectory(debounceMs = if (query.isBlank()) 0L else 300L)
     }
 
+    // ---------- Filtros de búsqueda ----------
+
+    private fun <T : Enum<T>> next(values: Array<T>, current: T): T = values[(current.ordinal + 1) % values.size]
+
+    private fun applyFilter(newFilter: SearchFilter) {
+        filter.value = newFilter
+        clearSelection()
+        loadDirectory()
+    }
+
+    // Cada toque pasa a la siguiente opción (sin menús desplegables animados).
+    fun cycleTypeFilter() = applyFilter(filter.value.copy(type = next(TypeFilter.values(), filter.value.type)))
+    fun cycleDateFilter() = applyFilter(filter.value.copy(date = next(DateFilter.values(), filter.value.date)))
+    fun cycleSizeFilter() = applyFilter(filter.value.copy(size = next(SizeFilter.values(), filter.value.size)))
+    fun clearFilters() = applyFilter(SearchFilter())
+
     // ---------- Selección ----------
 
     fun toggleSelection(item: FileItem) {
         val path = item.file.absolutePath
-        selection.value = if (path in selection.value) selection.value - path else selection.value + path
+        if (path in selection.value) {
+            selection.value = selection.value - path
+        } else {
+            selection.value = selection.value + path
+            anchorPath = path
+        }
+    }
+
+    /** Mantener pulsado: sin selección empieza una; con selección marca todo el rango desde el último marcado. */
+    fun longPress(item: FileItem) {
+        if (selection.value.isEmpty()) toggleSelection(item) else selectRangeTo(item)
+    }
+
+    private fun selectRangeTo(item: FileItem) {
+        val list = items.value
+        val path = item.file.absolutePath
+        val to = list.indexOfFirst { it.file.absolutePath == path }
+        if (to < 0) return
+        val anchor = anchorPath
+        val from = if (anchor == null) -1 else list.indexOfFirst { it.file.absolutePath == anchor }
+        if (from < 0) {
+            toggleSelection(item)
+            return
+        }
+        val range = if (from <= to) from..to else to..from
+        selection.value = selection.value + range.map { list[it].file.absolutePath }
+        anchorPath = path
+    }
+
+    /** Marca todos los elementos que no estaban seleccionados y desmarca los que sí. */
+    fun invertSelection() {
+        val all = items.value.mapTo(HashSet()) { it.file.absolutePath }
+        selection.value = all - selection.value
     }
 
     fun selectAll() {
@@ -313,6 +375,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     }
 
     fun clearSelection() {
+        anchorPath = null
         if (selection.value.isNotEmpty()) selection.value = emptySet()
     }
 
@@ -460,6 +523,46 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     }
 
     fun closeViewer() { viewer.value = null }
+
+    // ---------- Reproductor de audio y video ----------
+
+    /** ¿Se puede reproducir dentro de la app? (Solo audio y video; el resto se abre con otra app.) */
+    fun canPlay(item: FileItem): Boolean = item.kind() == FileKind.AUDIO || item.kind() == FileKind.VIDEO
+
+    /** Abre el reproductor en [item] y deja recorrer los demás audios/videos de [source]. */
+    fun openMedia(item: FileItem, source: List<FileItem>) {
+        val playlist = source.filter { canPlay(it) }
+        val index = playlist.indexOfFirst { it.file == item.file }
+        if (index < 0) return
+        media.value = MediaState(playlist, index)
+        player.load(playlist[index].file)
+    }
+
+    fun mediaStep(delta: Int) {
+        val state = media.value ?: return
+        val next = state.index + delta
+        if (next in state.items.indices) {
+            media.value = state.copy(index = next)
+            player.load(state.items[next].file)
+        }
+    }
+
+    private fun advanceAfterCompletion() {
+        val state = media.value ?: return
+        if (state.index + 1 in state.items.indices) mediaStep(1)
+    }
+
+    fun closeMedia() {
+        player.release()
+        media.value = null
+    }
+
+    /** Al salir de la app el audio/video se pausa (no hay servicio en segundo plano). */
+    fun pausePlayback() = player.pause()
+
+    override fun onCleared() {
+        player.release()
+    }
 
     // ---------- Favoritos ----------
 

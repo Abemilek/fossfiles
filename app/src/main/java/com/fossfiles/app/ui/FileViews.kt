@@ -204,7 +204,8 @@ internal fun FileCollection(
     favorites: Set<String>,
     grid: Boolean,
     onOpen: (FileItem) -> Unit,
-    onToggle: (FileItem) -> Unit
+    onToggle: (FileItem) -> Unit,
+    onLongPress: (FileItem) -> Unit
 ) {
     val selecting = selection.isNotEmpty()
     if (grid) {
@@ -217,7 +218,7 @@ internal fun FileCollection(
                     item = item,
                     selected = item.file.absolutePath in selection,
                     onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onToggle(item) },
+                    onLongClick = { onLongPress(item) },
                     favorite = item.file.absolutePath in favorites
                 )
             }
@@ -231,7 +232,7 @@ internal fun FileCollection(
                     selected = item.file.absolutePath in selection,
                     dateFmt = dateFmt,
                     onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onToggle(item) },
+                    onLongClick = { onLongPress(item) },
                     favorite = item.file.absolutePath in favorites
                 )
                 HorizontalDivider()
@@ -241,13 +242,15 @@ internal fun FileCollection(
 }
 
 /**
- * Tocar un elemento: las carpetas se abren en el explorador, las imágenes en el visor propio
- * (con las demás imágenes de [source]) y el resto con la app externa que elija el sistema.
+ * Tocar un elemento: las carpetas se abren en el explorador, las imágenes en el visor propio y los
+ * audios/videos en el reproductor propio (con los demás de [source]); el resto, con la app externa
+ * que elija el sistema.
  */
 internal fun openItem(viewModel: FileViewModel, context: Context, item: FileItem, source: List<FileItem>) {
     when {
         item.isDirectory -> viewModel.openFolder(item.file)
         viewModel.canPreview(item) -> viewModel.openViewer(item, source)
+        viewModel.canPlay(item) -> viewModel.openMedia(item, source)
         else -> openFileExternally(context, item.file)?.let { viewModel.message.value = it }
     }
 }

@@ -14,10 +14,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fossfiles.app.DateFilter
 import com.fossfiles.app.FileDetails
 import com.fossfiles.app.FileItem
 import com.fossfiles.app.FileViewModel
+import com.fossfiles.app.SizeFilter
 import com.fossfiles.app.SortMode
+import com.fossfiles.app.TypeFilter
 import com.fossfiles.app.formatSize
 import com.fossfiles.app.mimeTypeOf
 import com.fossfiles.app.openFileExternally
@@ -39,6 +42,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val grid by viewModel.gridView
     val details by viewModel.details
     val favorites by viewModel.favorites
+    val filter by viewModel.filter
     val busy = viewModel.isLoading.value || viewModel.isWorking.value
 
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -84,6 +88,8 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                         )
                         if (showOptions) OptionsRow(viewModel)
+                        // Con filtros activos la fila queda visible para que se note que hay una búsqueda en curso.
+                        if (showOptions || filter.isActive) FilterRow(viewModel)
                     }
                 }
             }
@@ -91,7 +97,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             Column(Modifier.padding(padding)) {
                 StatusLine(busy)
                 if (!busy && items.isEmpty()) {
-                    EmptyMessage(if (searchQuery.isNotBlank()) "Sin resultados" else "Carpeta vacía")
+                    EmptyMessage(if (searchQuery.isNotBlank() || filter.isActive) "Sin resultados" else "Carpeta vacía")
                 }
                 FileCollection(
                     items = items,
@@ -99,7 +105,8 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     favorites = favorites,
                     grid = grid,
                     onOpen = { item -> openItem(viewModel, context, item, items) },
-                    onToggle = { viewModel.toggleSelection(it) }
+                    onToggle = { viewModel.toggleSelection(it) },
+                    onLongPress = { viewModel.longPress(it) }
                 )
             }
         }
@@ -175,7 +182,8 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     favorites = favorites,
                     grid = grid,
                     onOpen = { item -> openItem(viewModel, context, item, items) },
-                    onToggle = { viewModel.toggleSelection(it) }
+                    onToggle = { viewModel.toggleSelection(it) },
+                    onLongPress = { viewModel.longPress(it) }
                 )
             }
         }
@@ -242,6 +250,7 @@ private fun SelectionTopBar(
 
     val extra = buildList<Pair<String, () -> Unit>> {
         add("Seleccionar todo" to { viewModel.selectAll() })
+        add("Invertir selección" to { viewModel.invertSelection() })
         val allFavorite = selected.isNotEmpty() && selected.all { it.file.absolutePath in favorites }
         add((if (allFavorite) "Quitar de favoritos" else "Añadir a favoritos") to { viewModel.toggleFavoriteForSelection() })
         if (selected.size == 1) add("Renombrar" to onRename)
@@ -302,6 +311,22 @@ private fun OptionsRow(viewModel: FileViewModel) {
         Spacer(Modifier.width(12.dp))
         OptionText(if (grid) "Vista: cuadrícula" else "Vista: lista", active = false) { viewModel.toggleGrid() }
         OptionText(if (hidden) "Ocultos: sí" else "Ocultos: no", active = hidden) { viewModel.toggleHidden() }
+    }
+}
+
+/** Filtros por tipo, fecha y tamaño: cada toque pasa a la siguiente opción. Buscan también en subcarpetas. */
+@Composable
+private fun FilterRow(viewModel: FileViewModel) {
+    val f by viewModel.filter
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Filtrar:", style = MaterialTheme.typography.bodyMedium)
+        OptionText("Tipo: ${f.type.label}", active = f.type != TypeFilter.ALL) { viewModel.cycleTypeFilter() }
+        OptionText("Fecha: ${f.date.label}", active = f.date != DateFilter.ANY) { viewModel.cycleDateFilter() }
+        OptionText("Tamaño: ${f.size.label}", active = f.size != SizeFilter.ANY) { viewModel.cycleSizeFilter() }
+        if (f.isActive) OptionText("Limpiar", active = false) { viewModel.clearFilters() }
     }
 }
 
