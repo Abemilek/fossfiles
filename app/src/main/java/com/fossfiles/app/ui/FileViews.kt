@@ -1,5 +1,6 @@
 package com.fossfiles.app.ui
 
+import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -29,7 +30,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fossfiles.app.FileItem
 import com.fossfiles.app.FileKind
+import com.fossfiles.app.FileViewModel
 import com.fossfiles.app.ThumbnailLoader
+import com.fossfiles.app.openFileExternally
 import com.fossfiles.app.formatSize
 import com.fossfiles.app.kind
 import java.text.SimpleDateFormat
@@ -48,7 +51,7 @@ internal fun iconFor(item: FileItem): ImageVector = when (item.kind()) {
     FileKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
-/** Miniatura de fotos y videos; para el resto (o mientras carga) muestra [fallback]. */
+/** Miniatura de fotos, videos y portadas de audio; para el resto (o mientras carga) muestra [fallback]. */
 @Composable
 internal fun FileThumbnail(
     item: FileItem,
@@ -59,7 +62,7 @@ internal fun FileThumbnail(
     val kind = item.kind()
     val px = with(LocalDensity.current) { requestSize.roundToPx() }
     val bitmap by produceState<ImageBitmap?>(null, item.file.absolutePath, item.lastModified, px) {
-        value = if (kind == FileKind.IMAGE || kind == FileKind.VIDEO) {
+        value = if (kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.AUDIO) {
             ThumbnailLoader.load(item, px)?.asImageBitmap()
         } else {
             null
@@ -90,7 +93,8 @@ internal fun FileRow(
     selected: Boolean,
     dateFmt: SimpleDateFormat,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    favorite: Boolean = false
 ) {
     val highlight = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent
     Row(
@@ -124,6 +128,15 @@ internal fun FileRow(
                 style = MaterialTheme.typography.bodySmall
             )
         }
+        if (favorite) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.Star,
+                contentDescription = "Favorito",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -132,7 +145,8 @@ internal fun FileGridCell(
     item: FileItem,
     selected: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    favorite: Boolean = false
 ) {
     val highlight = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent
     Column(
@@ -162,6 +176,14 @@ internal fun FileGridCell(
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(24.dp)
                 )
             }
+            if (favorite) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = "Favorito",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp)
+                )
+            }
         }
         Text(
             text = item.name,
@@ -179,6 +201,7 @@ internal fun FileGridCell(
 internal fun FileCollection(
     items: List<FileItem>,
     selection: Set<String>,
+    favorites: Set<String>,
     grid: Boolean,
     onOpen: (FileItem) -> Unit,
     onToggle: (FileItem) -> Unit
@@ -194,7 +217,8 @@ internal fun FileCollection(
                     item = item,
                     selected = item.file.absolutePath in selection,
                     onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onToggle(item) }
+                    onLongClick = { onToggle(item) },
+                    favorite = item.file.absolutePath in favorites
                 )
             }
         }
@@ -207,10 +231,23 @@ internal fun FileCollection(
                     selected = item.file.absolutePath in selection,
                     dateFmt = dateFmt,
                     onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onToggle(item) }
+                    onLongClick = { onToggle(item) },
+                    favorite = item.file.absolutePath in favorites
                 )
                 HorizontalDivider()
             }
         }
+    }
+}
+
+/**
+ * Tocar un elemento: las carpetas se abren en el explorador, las imágenes en el visor propio
+ * (con las demás imágenes de [source]) y el resto con la app externa que elija el sistema.
+ */
+internal fun openItem(viewModel: FileViewModel, context: Context, item: FileItem, source: List<FileItem>) {
+    when {
+        item.isDirectory -> viewModel.openFolder(item.file)
+        viewModel.canPreview(item) -> viewModel.openViewer(item, source)
+        else -> openFileExternally(context, item.file)?.let { viewModel.message.value = it }
     }
 }

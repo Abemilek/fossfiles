@@ -38,6 +38,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val selection by viewModel.selection
     val grid by viewModel.gridView
     val details by viewModel.details
+    val favorites by viewModel.favorites
     val busy = viewModel.isLoading.value || viewModel.isWorking.value
 
     var showNewFolderDialog by remember { mutableStateOf(false) }
@@ -53,6 +54,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     SelectionTopBar(
                         count = selection.size,
                         selected = selected,
+                        favorites = favorites,
                         inBrowse = true,
                         viewModel = viewModel,
                         onRename = { dialog = SelectionDialog.RENAME },
@@ -94,11 +96,9 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 FileCollection(
                     items = items,
                     selection = selection,
+                    favorites = favorites,
                     grid = grid,
-                    onOpen = { item ->
-                        if (item.isDirectory) viewModel.openDirectory(item.file)
-                        else openFileExternally(context, item.file)?.let { viewModel.message.value = it }
-                    },
+                    onOpen = { item -> openItem(viewModel, context, item, items) },
                     onToggle = { viewModel.toggleSelection(it) }
                 )
             }
@@ -133,6 +133,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val selection by viewModel.selection
     val grid by viewModel.gridView
     val details by viewModel.details
+    val favorites by viewModel.favorites
     val busy = viewModel.isLoading.value || viewModel.isWorking.value
     var dialog by remember { mutableStateOf<SelectionDialog?>(null) }
 
@@ -145,6 +146,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     SelectionTopBar(
                         count = selection.size,
                         selected = selected,
+                        favorites = favorites,
                         inBrowse = false,
                         viewModel = viewModel,
                         onRename = { dialog = SelectionDialog.RENAME },
@@ -170,8 +172,9 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 FileCollection(
                     items = items,
                     selection = selection,
+                    favorites = favorites,
                     grid = grid,
-                    onOpen = { item -> openFileExternally(context, item.file)?.let { viewModel.message.value = it } },
+                    onOpen = { item -> openItem(viewModel, context, item, items) },
                     onToggle = { viewModel.toggleSelection(it) }
                 )
             }
@@ -201,10 +204,14 @@ private fun SelectionDialogs(
             )
         }
         SelectionDialog.DELETE -> if (selected.isNotEmpty()) {
-            ConfirmDeleteDialog(
+            DeleteChoiceDialog(
                 names = selected.map { it.name },
-                onConfirm = {
-                    viewModel.deleteSelected()
+                onTrash = {
+                    viewModel.deleteSelected(permanent = false)
+                    onClose()
+                },
+                onPermanent = {
+                    viewModel.deleteSelected(permanent = true)
                     onClose()
                 },
                 onDismiss = onClose
@@ -223,6 +230,7 @@ private fun SelectionDialogs(
 private fun SelectionTopBar(
     count: Int,
     selected: List<FileItem>,
+    favorites: Set<String>,
     inBrowse: Boolean,
     viewModel: FileViewModel,
     onRename: () -> Unit,
@@ -234,6 +242,8 @@ private fun SelectionTopBar(
 
     val extra = buildList<Pair<String, () -> Unit>> {
         add("Seleccionar todo" to { viewModel.selectAll() })
+        val allFavorite = selected.isNotEmpty() && selected.all { it.file.absolutePath in favorites }
+        add((if (allFavorite) "Quitar de favoritos" else "Añadir a favoritos") to { viewModel.toggleFavoriteForSelection() })
         if (selected.size == 1) add("Renombrar" to onRename)
         add("Compartir" to {
             shareFiles(context, selected.map { it.file })?.let { viewModel.message.value = it }
@@ -340,7 +350,7 @@ private fun DetailRow(label: String, value: String) {
 
 // Texto fijo en vez de una barra de progreso indeterminada: esa barra se anima sin parar.
 @Composable
-private fun StatusLine(busy: Boolean) {
+internal fun StatusLine(busy: Boolean) {
     if (busy) {
         Text(
             "Trabajando…",
@@ -351,7 +361,7 @@ private fun StatusLine(busy: Boolean) {
 }
 
 @Composable
-private fun EmptyMessage(text: String) {
+internal fun EmptyMessage(text: String) {
     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodyMedium)
     }

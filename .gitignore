@@ -34,5 +34,8 @@ Thumbs.db
 # --- Logs ---
 *.log
 
+# --- Firma del APK: nunca subir ---
+keystore.properties
+
 # --- Container build (Podman/Docker) ---
 .container/

@@ -21,7 +21,6 @@ import com.fossfiles.app.Category
 import com.fossfiles.app.FileViewModel
 import com.fossfiles.app.StorageInfo
 import com.fossfiles.app.formatSize
-import com.fossfiles.app.openFileExternally
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +29,7 @@ fun HomeScreen(viewModel: FileViewModel) {
     val storage by viewModel.storageInfo
     val quickLinks by viewModel.quickLinks
     val recent by viewModel.recent
+    val favorites by viewModel.favorites
     val dateFmt = rememberDateFormat()
 
     Scaffold(
@@ -76,6 +76,13 @@ fun HomeScreen(viewModel: FileViewModel) {
                     }
                 }
             }
+            item {
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    CategoryTile("Papelera", Icons.Default.Delete, Modifier.fillMaxWidth()) {
+                        viewModel.openTrash()
+                    }
+                }
+            }
 
             if (recent.isNotEmpty()) {
                 item { SectionTitle("Recientes") }
@@ -84,8 +91,9 @@ fun HomeScreen(viewModel: FileViewModel) {
                         item = item,
                         selected = false,
                         dateFmt = dateFmt,
-                        onClick = { openFileExternally(context, item.file)?.let { viewModel.message.value = it } },
-                        onLongClick = {}
+                        onClick = { openItem(viewModel, context, item, recent) },
+                        onLongClick = {},
+                        favorite = item.file.absolutePath in favorites
                     )
                 }
             }
@@ -101,7 +109,8 @@ private val categoryTiles = listOf(
     CategoryTileInfo(Category.VIDEOS, "Videos", Icons.Default.Movie),
     CategoryTileInfo(Category.AUDIO, "Audio", Icons.Default.AudioFile),
     CategoryTileInfo(Category.DOWNLOADS, "Descargas", Icons.Default.Download),
-    CategoryTileInfo(Category.DOCUMENTS, "Documentos", Icons.Default.Description)
+    CategoryTileInfo(Category.DOCUMENTS, "Documentos", Icons.Default.Description),
+    CategoryTileInfo(Category.FAVORITES, "Favoritos", Icons.Default.Star)
 )
 
 @Composable

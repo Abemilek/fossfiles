@@ -13,8 +13,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-enum class ScreenMode { HOME, BROWSE, CATEGORY }
-enum class Category(val label: String) { IMAGES("Fotos"), VIDEOS("Videos"), AUDIO("Audio"), DOWNLOADS("Descargas"), DOCUMENTS("Documentos") }
+enum class ScreenMode { HOME, BROWSE, CATEGORY, TRASH }
+enum class Category(val label: String) {
+    IMAGES("Fotos"), VIDEOS("Videos"), AUDIO("Audio"), DOWNLOADS("Descargas"), DOCUMENTS("Documentos"), FAVORITES("Favoritos")
+}
+
+/** Imágenes que se pueden recorrer en el visor y cuál se está viendo. */
+data class ViewerState(val images: List<FileItem>, val index: Int)
 
 /** Acceso rápido a una carpeta conocida del almacenamiento. */
 data class QuickLink(val label: String, val dir: File)
@@ -37,6 +42,9 @@ private class Loaded(val items: List<FileItem>, val notice: String? = null)
 class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel() {
 
     private val root = rootDir
+
+    // Papelera local: oculta (empieza con punto) y con .nomedia, así no aparece en Fotos ni en la galería.
+    private val trash = TrashBin(File(rootDir, ".fossfiles-trash"))
 
     // Preferencias solo locales (SharedPreferences privado de la app): vista, ocultos y orden.
     private val prefs = appContext.getSharedPreferences("fossfiles", Context.MODE_PRIVATE)
@@ -74,6 +82,13 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     val clipboardIsCut = mutableStateOf(false)
 
     val details = mutableStateOf<FileDetails?>(null)
+    val viewer = mutableStateOf<ViewerState?>(null)
+
+    /** Rutas absolutas de los favoritos (guardadas solo en el almacenamiento privado de la app). */
+    val favorites = mutableStateOf<Set<String>>(HashSet(prefs.getStringSet("fav", emptySet()) ?: emptySet()))
+
+    val trashEntries = mutableStateOf<List<TrashBin.Entry>>(emptyList())
+    val trashSelection = mutableStateOf<Set<String>>(emptySet()) // ids
 
     /** Mensaje de error/aviso para mostrar una vez; la UI lo limpia con [dismissMessage]. */
     val message = mutableStateOf<String?>(null)
@@ -103,6 +118,8 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                     "Películas" to "Movies"
                 )
                 val existing = known.map { QuickLink(it.first, File(root, it.second)) }.filter { it.dir.isDirectory }
+                // Aprovecha para vaciar de la papelera lo que lleva más de 30 días.
+                try { trash.purgeOlderThan(TRASH_DAYS * DAY_MS) } catch (e: Exception) { /* no es crítico */ }
                 existing to MediaStoreScanner.recent(appContext)
             }
             quickLinks.value = links
@@ -180,17 +197,29 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                         active,
                         hidden
                     )
+                    Category.FAVORITES -> favoriteItems()
                 }
             )
         }
     }
 
-    /** Vuelve a cargar lo que se esté viendo (carpeta, búsqueda o categoría). */
+    /** Favoritos que todavía existen; los que ya no, se quitan de la lista guardada. */
+    private fun favoriteItems(): List<FileItem> {
+        val existing = favorites.value.map { File(it) }.filter { it.exists() }
+        if (existing.size != favorites.value.size) {
+            val keep = existing.mapTo(HashSet()) { it.absolutePath }
+            updateFavorites { it.filterTo(HashSet()) { path -> path in keep } }
+        }
+        return FileRepository.sortItems(existing.map { FileItem(it) }, SortMode.NAME)
+    }
+
+    /** Vuelve a cargar lo que se esté viendo (carpeta, búsqueda, categoría o papelera). */
     fun reload() {
         when (screenMode.value) {
             ScreenMode.BROWSE -> loadDirectory()
             ScreenMode.CATEGORY -> currentCategory.value?.let { loadCategory(it) }
             ScreenMode.HOME -> refreshHome()
+            ScreenMode.TRASH -> loadTrash()
         }
     }
 
@@ -200,6 +229,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         loadJob?.cancel()
         isLoading.value = false
         clearSelection()
+        trashSelection.value = emptySet()
         screenMode.value = ScreenMode.HOME
         searchQuery.value = ""
         refreshHome()
@@ -210,9 +240,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         openDirectory(root)
     }
 
-    fun openQuickLink(link: QuickLink) {
+    fun openQuickLink(link: QuickLink) = openFolder(link.dir)
+
+    /** Abre una carpeta en el explorador desde cualquier pantalla (Home, favoritos, accesos rápidos). */
+    fun openFolder(dir: File) {
         screenMode.value = ScreenMode.BROWSE
-        openDirectory(link.dir)
+        openDirectory(dir)
     }
 
     fun openCategory(category: Category) {
@@ -288,20 +321,20 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     // ---------- Operaciones ----------
 
-    /** Ejecuta [op] para cada archivo en segundo plano, junta los errores y recarga la vista. */
-    private fun runBatch(files: List<File>, op: (File) -> Unit) {
-        if (files.isEmpty() || isWorking.value) return
+    /** Ejecuta [op] para cada elemento en segundo plano, junta los errores y al final llama a [onDone]. */
+    private fun <T> runTasks(items: List<T>, label: (T) -> String, op: (T) -> Unit, onDone: () -> Unit) {
+        if (items.isEmpty() || isWorking.value) return
         isWorking.value = true
         viewModelScope.launch {
             val errors = withContext(Dispatchers.IO) {
-                files.mapNotNull { f ->
+                items.mapNotNull { item ->
                     try {
-                        op(f)
+                        op(item)
                         null
                     } catch (e: FileOpException) {
                         e.message
                     } catch (e: Exception) {
-                        "Error inesperado con «${f.name}»"
+                        "Error inesperado con «${label(item)}»"
                     }
                 }
             }
@@ -310,9 +343,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                 message.value = errors.first() +
                     if (errors.size > 1) " (y ${errors.size - 1} errores más)" else ""
             }
-            reload()
+            onDone()
         }
     }
+
+    private fun runBatch(files: List<File>, op: (File) -> Unit) =
+        runTasks(files, { it.name }, op) { reload() }
 
     fun createFolder(name: String) {
         val parent = currentDir.value
@@ -321,13 +357,22 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     fun rename(item: File, newName: String) {
         clearSelection()
-        runBatch(listOf(item)) { FileRepository.rename(it, newName) }
+        runBatch(listOf(item)) {
+            val renamed = FileRepository.rename(it, newName)
+            if (it.absolutePath in favorites.value) {
+                updateFavorites { favs -> favs - it.absolutePath + renamed.absolutePath }
+            }
+        }
     }
 
-    fun deleteSelected() {
+    /** Envía a la papelera (se puede restaurar) o, con [permanent], borra para siempre. */
+    fun deleteSelected(permanent: Boolean) {
         val files = selectedFiles()
         clearSelection()
-        runBatch(files) { FileRepository.delete(it) }
+        runBatch(files) {
+            if (permanent) FileRepository.delete(it) else trash.moveToTrash(it)
+            if (it.absolutePath in favorites.value) updateFavorites { favs -> favs - it.absolutePath }
+        }
     }
 
     fun copySelectedToClipboard() {
@@ -393,5 +438,113 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun closeDetails() {
         detailsJob?.cancel()
         details.value = null
+    }
+
+    // ---------- Visor de imágenes ----------
+
+    /** Las imágenes que el visor sabe mostrar (el SVG se abre con otra app). */
+    fun canPreview(item: FileItem): Boolean =
+        item.kind() == FileKind.IMAGE && !item.file.extension.equals("svg", ignoreCase = true)
+
+    /** Abre el visor en [item] y deja recorrer las demás imágenes de [source]. */
+    fun openViewer(item: FileItem, source: List<FileItem>) {
+        val images = source.filter { canPreview(it) }
+        val index = images.indexOfFirst { it.file == item.file }
+        if (index >= 0) viewer.value = ViewerState(images, index)
+    }
+
+    fun viewerStep(delta: Int) {
+        val state = viewer.value ?: return
+        val next = state.index + delta
+        if (next in state.images.indices) viewer.value = state.copy(index = next)
+    }
+
+    fun closeViewer() { viewer.value = null }
+
+    // ---------- Favoritos ----------
+
+    /** Aplica [change] al conjunto de favoritos y lo persiste (sincronizado por si cambia en paralelo). */
+    @Synchronized
+    private fun updateFavorites(change: (Set<String>) -> Set<String>) {
+        val updated = change(favorites.value)
+        favorites.value = updated
+        prefs.edit().putStringSet("fav", HashSet(updated)).apply()
+    }
+
+    /** Si todo lo seleccionado ya es favorito lo quita; si no, lo añade. */
+    fun toggleFavoriteForSelection() {
+        val paths = selectedFiles().map { it.absolutePath }
+        if (paths.isEmpty()) return
+        val allFavorite = paths.all { it in favorites.value }
+        updateFavorites { if (allFavorite) it - paths.toSet() else it + paths }
+        clearSelection()
+        if (screenMode.value == ScreenMode.CATEGORY && currentCategory.value == Category.FAVORITES) reload()
+    }
+
+    // ---------- Papelera ----------
+
+    /** Abre la pantalla de la papelera y carga sus elementos (vaciando antes lo que ya tiene más de 30 días). */
+    fun openTrash() {
+        loadJob?.cancel()
+        isLoading.value = false
+        clearSelection()
+        trashSelection.value = emptySet()
+        screenMode.value = ScreenMode.TRASH
+        loadTrash()
+    }
+
+    private fun loadTrash() {
+        viewModelScope.launch {
+            try {
+                val entries = withContext(Dispatchers.IO) {
+                    trash.purgeOlderThan(TRASH_DAYS * DAY_MS)
+                    trash.list()
+                }
+                trashEntries.value = entries
+                val ids = entries.mapTo(HashSet()) { it.id }
+                trashSelection.value = trashSelection.value.filterTo(HashSet()) { it in ids }
+            } catch (e: Exception) {
+                message.value = "No se pudo leer la papelera"
+            }
+        }
+    }
+
+    fun toggleTrashSelection(entry: TrashBin.Entry) {
+        trashSelection.value =
+            if (entry.id in trashSelection.value) trashSelection.value - entry.id else trashSelection.value + entry.id
+    }
+
+    fun selectAllTrash() {
+        trashSelection.value = trashEntries.value.mapTo(HashSet()) { it.id }
+    }
+
+    fun clearTrashSelection() {
+        if (trashSelection.value.isNotEmpty()) trashSelection.value = emptySet()
+    }
+
+    private fun selectedTrash(): List<TrashBin.Entry> =
+        trashEntries.value.filter { it.id in trashSelection.value }
+
+    /** Devuelve a su ubicación original (o a la raíz si ya no existe) los elementos seleccionados. */
+    fun restoreSelectedFromTrash() {
+        val chosen = selectedTrash()
+        clearTrashSelection()
+        runTasks(chosen, { it.name }, { trash.restore(it, root) }) { loadTrash() }
+    }
+
+    fun deleteSelectedFromTrashForever() {
+        val chosen = selectedTrash()
+        clearTrashSelection()
+        runTasks(chosen, { it.name }, { trash.deleteForever(it) }) { loadTrash() }
+    }
+
+    fun emptyTrash() {
+        clearTrashSelection()
+        runTasks(listOf(Unit), { "la papelera" }, { trash.empty() }) { loadTrash() }
+    }
+
+    private companion object {
+        const val TRASH_DAYS = 30L
+        const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }

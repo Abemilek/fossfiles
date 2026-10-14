@@ -184,20 +184,44 @@ fun NameInputDialog(title: String, initialValue: String, onConfirm: (String) -> 
     }
 }
 
+/** Diálogo de confirmación genérico (título, texto y una acción) para la papelera y los avisos. */
 @Composable
-fun ConfirmDeleteDialog(names: List<String>, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun ConfirmDialog(
+    title: String,
+    text: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalOverlay(onDismiss = onDismiss) {
+        Text(title, style = MaterialTheme.typography.titleLarge)
+        Spacer(Modifier.size(12.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.size(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            PlainTextButton("Cancelar", onDismiss)
+            PlainTextButton(confirmLabel, onConfirm)
+        }
+    }
+}
+
+/** Eliminar: a la papelera (se puede deshacer) o para siempre. */
+@Composable
+fun DeleteChoiceDialog(names: List<String>, onTrash: () -> Unit, onPermanent: () -> Unit, onDismiss: () -> Unit) {
     val what = if (names.size == 1) "«${names.first()}»" else "${names.size} elementos"
     ModalOverlay(onDismiss = onDismiss) {
         Text("¿Eliminar $what?", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.size(12.dp))
         Text(
-            "Se borrará de forma permanente. Si es una carpeta, también todo lo que contiene. Esta acción no se puede deshacer.",
+            "Si lo envías a la papelera podrás restaurarlo durante 30 días. Si lo eliminas definitivamente, " +
+                "se borra de inmediato y, si es una carpeta, también todo lo que contiene.",
             style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(Modifier.size(16.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            PlainTextButton("Enviar a la papelera", onTrash)
+            PlainTextButton("Eliminar definitivamente", onPermanent)
             PlainTextButton("Cancelar", onDismiss)
-            PlainTextButton("Eliminar", onConfirm)
         }
     }
 }

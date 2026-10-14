@@ -22,6 +22,8 @@ import com.fossfiles.app.ui.CategoryListScreen
 import com.fossfiles.app.ui.FileListScreen
 import com.fossfiles.app.ui.FossFilesTheme
 import com.fossfiles.app.ui.HomeScreen
+import com.fossfiles.app.ui.ImageViewer
+import com.fossfiles.app.ui.TrashScreen
 import com.fossfiles.app.ui.MessageBanner
 import com.fossfiles.app.ui.PlainButton
 import java.io.File
@@ -61,9 +63,22 @@ class MainActivity : ComponentActivity() {
                             ScreenMode.HOME -> HomeScreen(viewModel = viewModel)
                             ScreenMode.BROWSE -> FileListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
                             ScreenMode.CATEGORY -> CategoryListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
+                            ScreenMode.TRASH -> TrashScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
                         }
                     } else {
                         PermissionScreen(onGrant = { requestStoragePermission() })
+                    }
+
+                    // Visor de imágenes: va encima de todo (su botón Atrás se registra después, así que gana).
+                    viewModel.viewer.value?.let { state ->
+                        ImageViewer(
+                            state = state,
+                            onStep = { viewModel.viewerStep(it) },
+                            onOpenWith = { item ->
+                                openFileExternally(this@MainActivity, item.file)?.let { viewModel.message.value = it }
+                            },
+                            onClose = { viewModel.closeViewer() }
+                        )
                     }
 
                     // Aviso dentro de la app (un Toast del sistema se anima al aparecer y desaparecer).
@@ -91,6 +106,8 @@ class MainActivity : ComponentActivity() {
     private fun handleBack() {
         if (viewModel.selection.value.isNotEmpty()) {
             viewModel.clearSelection()
+        } else if (viewModel.screenMode.value == ScreenMode.TRASH && viewModel.trashSelection.value.isNotEmpty()) {
+            viewModel.clearTrashSelection()
         } else if (viewModel.screenMode.value == ScreenMode.BROWSE) {
             if (!viewModel.goUp()) viewModel.goHome()
         } else {

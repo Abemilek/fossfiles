@@ -22,76 +22,57 @@ Google services (GMS), light and fast**.
 
 ## Project policies
 
-### Zero Internet, zero telemetry (a verifiable guarantee, not a promise)
+### 1. Zero Internet, zero telemetry (a verifiable guarantee, not a promise)
 - `AndroidManifest.xml` **does not declare `android.permission.INTERNET`**. Without that permission,
   Android blocks any network connection at the OS level, so the app could not send data to any server
   even if the code tried to.
 - Zero third-party SDKs: no Firebase, Crashlytics, Analytics, Ads or Google Play Services.
-  Only AndroidX, Compose and kotlinx-coroutines. (JUnit is test-only and never ships in the APK.)
+  Only AndroidX, Compose and kotlinx-coroutines. Thumbnails, the image viewer, ZIP, the trash bin and
+  sharing use only system APIs (`ThumbnailUtils`, `BitmapFactory`, `java.util.zip`, `FileProvider`).
+  JUnit is test-only and never ships in the APK.
+- Your settings, favorites and trash bin are stored on the device only.
 - Verify it on any built APK: `aapt2 dump permissions app-release.apk` must not list `INTERNET`.
-- All the code lives in this repo; you can read the whole thing in one sitting.
 
-### Zero animations (so it feels — and is — fast)
+### 2. Zero animations (so it feels — and is — fast)
 - The app animates nothing on its own: no screen transitions, no touch ripple, no sliding sheets or
   menus, no indeterminate progress bars (which animate forever and drain battery).
 - Dialogs are just another layer of the screen (not system windows), so they appear instantly.
+- The image viewer switches photos and zooms without animating; it is driven by buttons and direct gestures.
 - Notices and errors show up in a fixed strip at the bottom (tap to dismiss), not in a Toast.
-- The overscroll "stretch" effect at the end of a list and the theme's window animations are disabled.
 - Limitations that belong to the system and cannot be removed from the app: the Android 12+ splash
-  screen and Android's own keyboard/gesture animations.
+  screen, Android's own keyboard/gesture animations and the "Share" chooser.
+
+### 3. Light APK
+- A single universal APK (no per-CPU split: the only native piece is a small AndroidX library,
+  `libandroidx.graphics.path.so`, so one APK for every architecture is simpler and barely bigger),
+  R8 with minification and resource shrinking, only the `es`/`en` strings from the libraries, no
+  leftover metadata and no unused dependencies. Thumbnails and the viewer pull in no image library —
+  they use the system one, with a bounded in-memory cache (1/16 of the heap).
 
 ## Features
-- A **Home screen** with storage info, **quick access** to the usual folders (Downloads, DCIM,
-  Pictures, Documents, Music, Movies when they exist) and a **Recents** list of the latest files
-- Browse folders, go up a level, and search by name (up to 6 levels deep; the previous search is
-  cancelled as you keep typing)
-- **List or grid view** you can switch anytime (also inside photo/video categories), with on-demand
-  **thumbnails** for images and videos generated from pure system APIs (nothing extra in the APK)
-- Sort by name, date, size or type (folders always first)
-- **Show/hide hidden files** — and your sort mode, view and hidden-file choice are **remembered**
-  between sessions
-- **Multi-selection** (long-press): copy, cut, rename (one at a time), **share**, delete and select all
-- **ZIP compression and extraction**: compress any selection into a `.zip`, extract ZIPs safely
-  (rejects archives that try to escape the extraction folder, checks free space first)
-- **Details**: size, type, location and modification date — folders count their files, subfolders
-  and total bytes (computed in the background)
-- Create a folder, paste into the current folder
-- Copy without overwriting: if the name exists, it creates `name (1)`, `name (2)`…
-- Move = instant rename on the same volume (copy + delete only when crossing volumes)
-- Confirmation before deleting
-- Categories: Photos, Videos, Audio, Downloads and Documents (via MediaStore, no disk scan)
-- Per-type icons and human-readable sizes (KB/MB/GB)
-- Back button: closes the selection, goes up a folder, or returns home
+- **Home:** storage used, **quick access** (Downloads, DCIM, Pictures, Documents, Music, Movies — only
+  the ones that exist), categories (Photos, Videos, Audio, Downloads, Documents, **Favorites**),
+  **Trash** and a **Recents** list.
+- **Browse:** go up a level, search by name (6 levels, cancellable), sort by name/date/size/type,
+  **list or grid with thumbnails** (photos, videos and **album art** for audio), show/hide hidden
+  files. Sort, view and hidden-file choice are remembered.
+- **Built-in image viewer:** tap a photo to open it in the app, with zoom (pinch or double tap),
+  previous/next buttons and "open with another app". It honors the EXIF orientation of camera photos.
+- **Favorites:** mark them from the "⋮" menu in a selection (they show a star and appear in the
+  Favorites category; favorite folders open straight in the browser).
+- **Local trash bin:** deleting asks whether to move to trash or delete permanently. The trash keeps
+  everything for **30 days** (then it empties itself), lets you **restore** to the original folder
+  (recreating it if it no longer exists) and empty it. Sending to trash is instant (it copies nothing).
+- **Multi-selection** (long-press): copy, cut, delete and, in "⋮": select all, favorites, rename,
+  **share**, **compress to ZIP**, **extract ZIP** and **details**.
+- Create a folder and paste. Copy never overwrites: if the name exists, it creates `name (1)`.
+  Move is an instant rename on the same volume.
+- Back button: closes the viewer/selection, goes up a folder, or returns home.
 
 ## Requirements
 - JDK 17 or newer (the project targets Java 17 and builds fine on JDK 21)
 - Android SDK with `platforms;android-34` and `build-tools;34.0.0`
 - A device or emulator running Android 8.0 (API 26) or newer
-
-## Build from the command line
-```bash
-# Debug APK -> app/build/outputs/apk/debug/app-debug.apk
-./gradlew assembleDebug
-
-# Release APK (signed with the debug key, see notes below)
-./gradlew assembleRelease
-```
-
-Install on a physical device (enable USB debugging first):
-```bash
-adb devices
-./gradlew installDebug
-# or, with an APK already built:
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-> The release build is signed with the **debug key** so you can install and test the optimized build
-> without creating a keystore. Replace `signingConfigs.getByName("debug")` in `app/build.gradle.kts`
-> with your real signing config before publishing anywhere.
->
-> There is a **single universal APK**: the app is pure Kotlin with no native libraries, so
-> per-architecture APKs would be identical anyway. Only the strings for Spanish + English are
-> packaged, which keeps the APK small.
 
 ## Build with Android Studio
 1. Open the `fossfiles/` folder in Android Studio (Hedgehog or newer).
@@ -116,29 +97,70 @@ toolchain's telemetry off) and caches Gradle in `.container/gradle`, so later bu
 generated files belong to you, and your own `local.properties` is left untouched. This is the same
 approach CI systems use, and it makes builds reproducible across machines.
 
+## Build from the command line
+```bash
+# Debug APK -> app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleDebug
+
+# Release APK (signed with the debug key unless you set up a keystore, see below)
+./gradlew assembleRelease
+```
+
+Install on a physical device (enable USB debugging first):
+```bash
+adb devices
+./gradlew installDebug
+# or, with an APK already built:
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Signing the APK with your own key
+With no configuration the release build is signed with the debug key (fine for testing). To sign it
+with your own key (needed to publish and to have updates install on top):
+
+```bash
+keytool -genkeypair -v -keystore fossfiles-release.jks -alias fossfiles -keyalg RSA -keysize 2048 -validity 10000
+cp keystore.properties.example keystore.properties     # then edit it with your passwords
+./gradlew assembleRelease
+```
+
+Put the `.jks` in the project root. `keystore.properties` and the `.jks` files are already in
+`.gitignore`: **keep a copy of your keystore** — if you lose it you won't be able to update the app
+signed with it.
+
+> There is a **single universal APK**: the only native library is a small AndroidX support file
+> (`libandroidx.graphics.path.so`), so one APK that covers every architecture is simpler than
+> per-CPU builds. Only the strings for Spanish + English are packaged, which keeps the APK small.
+
 ## Testing
-The file logic (`FileRepository`) does not depend on Android and has JVM tests:
+The file logic (`FileRepository`) and the trash bin (`TrashBin`) do not depend on Android and have
+JVM tests:
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
 They cover: invalid names, copy-without-overwrite, moving to the same folder, a folder inside itself,
-deleting without following symlinks, search depth and cancellation, list ordering, filtering hidden
-files, measuring folder contents, and ZIP compression/extraction (including rejecting archives that
-try to write outside the extraction folder).
+deleting without following symlinks, search (depth, cancellation, cycles), hidden files, measuring
+folder contents, ZIP (round-trip, duplicate names, rejecting paths that try to escape) and the trash
+bin (restore to origin, recreating the folder, name conflicts, purging by age, symlinks).
 
 ## Behavior notes
-- Symlinks are never followed: copy/move skip them and delete removes only the link.
+- Symlinks are never followed: copy/move/ZIP skip them; deleting removes only the link (they don't go
+  through the trash bin).
+- The trash bin lives in `.fossfiles-trash/` in internal storage (hidden and with `.nomedia`, so it
+  doesn't show up in the gallery) and takes up space until you empty it. Items whose original folder
+  no longer exists are restored by recreating it; if that fails, to the root.
 - Search shows at most 5,000 results and warns you when there are more.
 - Cut and paste across volumes (e.g. to an SD card) copies and then deletes; if the original could not
-  be deleted, the app tells you instead of failing silently.
+  be deleted, the app tells you.
 - Folders cannot be shared directly: compress them to a ZIP first.
-- ZIP extraction creates a new folder next to the archive (`name`, then `name (1)`, `name (2)`… if it
-  already exists) and never overwrites anything.
+- ZIP extraction creates a new folder next to the archive, rejects unsafe paths and stops if there is
+  no free space.
+- The viewer does not open SVG (open those with another app).
 
 ## Possible next steps
-- Sign the release APK with your own keystore for publishing (today it uses the debug key)
+- Audio/video playback in the app, search by type/date/size, range selection
 - Search inside file contents (text documents)
 - Browsing inside a ZIP without extracting it
 

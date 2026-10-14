@@ -1,7 +1,18 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Firma propia (opcional): si existe keystore.properties en la raíz del proyecto, el build release
+// se firma con tu keystore. Si no existe, usa la clave de debug para poder probarlo igual.
+// keystore.properties y el .jks NO se suben a git (ver .gitignore).
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val hasOwnKeystore = keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "com.fossfiles.app"
@@ -11,28 +22,39 @@ android {
         applicationId = "com.fossfiles.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         // La app está solo en español: no se empaquetan las traducciones de las librerías
         // (Compose/AndroidX traen decenas de idiomas) -> APK más chico.
         resourceConfigurations += listOf("es", "en")
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasOwnKeystore) {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // Firma con la misma clave de debug para poder instalar y probar
-            // el build optimizado directo en el celular sin crear un keystore
-            // propio. Para publicar de verdad, cambia esto por tu firma real.
-            signingConfig = signingConfigs.getByName("debug")
+            // Con keystore.properties usa tu firma real; sin él, la clave de debug para
+            // poder instalar y probar el build optimizado directo en el celular.
+            signingConfig = signingConfigs.getByName(if (hasOwnKeystore) "release" else "debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
-    // Sin "splits" por arquitectura: la app es 100 % Kotlin, no lleva librerías nativas (.so),
-    // así que un APK por CPU saldría idéntico. Un solo APK, el más chico posible.
+    // Sin "splits" por arquitectura: la única pieza nativa es una librería pequeña de AndroidX
+    // (libandroidx.graphics.path.so, para dibujar formas), así que un APK universal para todas las
+    // arquitecturas es más simple y apenas más grande. Un solo APK.
 
     packaging {
         resources {
