@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,9 +31,11 @@ private enum class TrashConfirm { EMPTY, DELETE_FOREVER }
 fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val entries by viewModel.trashEntries
     val selected by viewModel.trashSelection
-    val busy = viewModel.isLoading.value || viewModel.isWorking.value
+    val trashDays by viewModel.trashDays
+    val loaded by viewModel.trashLoaded
+    val working = viewModel.isWorking.value
     val dateFmt = rememberDateFormat()
-    var confirm by remember { mutableStateOf<TrashConfirm?>(null) }
+    var confirm by rememberSaveable { mutableStateOf<TrashConfirm?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -64,17 +67,16 @@ fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         ) { padding ->
             Column(Modifier.padding(padding)) {
                 Text(
-                    "Lo que elimines se conserva aquí 30 días y luego se borra solo. Ocupa espacio en el dispositivo hasta entonces.",
+                    "Lo que elimines se conserva aquí $trashDays días y luego se borra solo. Ocupa espacio en el dispositivo hasta entonces. Puedes cambiar los días en Ajustes.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-                StatusLine(busy)
-                if (!busy && entries.isEmpty()) EmptyMessage("La papelera está vacía")
+                if (loaded && !working && entries.isEmpty()) EmptyMessage("La papelera está vacía")
                 LazyColumn {
-                    items(entries, key = { it.id }) { entry ->
+                    items(entries, key = { it.file.absolutePath }) { entry ->
                         TrashRow(
                             entry = entry,
-                            selected = entry.id in selected,
+                            selected = entry.file.absolutePath in selected,
                             dateFmt = dateFmt,
                             onToggle = { viewModel.toggleTrashSelection(entry) }
                         )

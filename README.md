@@ -30,7 +30,9 @@ Google services (GMS), light and fast**.
   Only AndroidX, Compose and kotlinx-coroutines. Thumbnails, the image viewer, the media player, ZIP,
   the trash bin and sharing use only system APIs (`ThumbnailUtils`, `BitmapFactory`, `MediaPlayer`,
   `java.util.zip`, `FileProvider`). JUnit is test-only and never ships in the APK.
-- Your settings, favorites and trash bin are stored on the device only.
+- Your settings, favorites and trash bin are stored on the device only. If the app ever crashes, the
+  last error is saved **locally** (Settings → Error log) so you can copy it into a bug report if you
+  want; nothing is ever sent anywhere.
 - Verify it on any built APK: `aapt2 dump permissions app-release.apk` must not list `INTERNET`.
 
 ### 2. Zero animations (so it feels — and is — fast)
@@ -51,35 +53,65 @@ Google services (GMS), light and fast**.
   they use the system one, with a bounded in-memory cache (1/16 of the heap).
 
 ## Features
-- **Home:** storage used, **quick access** (Downloads, DCIM, Pictures, Documents, Music, Movies — only
-  the ones that exist), categories (Photos, Videos, Audio, Downloads, Documents, **Favorites**),
-  **Trash** and a **Recents** list.
-- **Browse:** go up a level, search by name (6 levels, cancellable), sort by name/date/size/type,
-  **list or grid with thumbnails** (photos, videos and **album art** for audio), show/hide hidden
+
+**Home**
+- A card per storage volume (internal storage and, if present, an **SD card / USB drive**) with the
+  space used; tap one to open it.
+- A **search box** that looks for names across the whole internal storage.
+- **Quick access** (Downloads, DCIM, Pictures, Documents, Music, Movies — only the ones that exist),
+  categories (Photos, Videos, Audio, Downloads, Documents, **Favorites**), **Large files** (everything
+  over 100 MB, biggest first, to free up space), **Trash** and a **Recents** list.
+- **Settings**: theme (system / light / dark), default view, hidden files, trash retention
+  (7–90 days), clear the thumbnail cache, last-error log and an About section.
+
+**Browse**
+- Go up a level (**and it remembers where you were in the list** when you come back), search by name
+  (6 levels, cancellable), **natural sort** (`photo2` before `photo10`, accent- and case-insensitive,
+  folders first) by name/date/size/type with a **reverse order** switch, **list or grid with
+  thumbnails** (photos, videos and **album art** for audio), folder item counts and show/hide hidden
   files. Sort, view and hidden-file choice are remembered.
-- **Built-in image viewer:** tap a photo to open it in the app, with zoom (pinch or double tap),
-  previous/next buttons and "open with another app". It honors the EXIF orientation of camera photos.
-- **Built-in audio/video player:** tap an audio or video file to play it inside the app, with
-  previous/next, pause, a seek bar to jump anywhere and automatic advance to the next track in the
-  list. It requests audio focus (it pauses if another app takes it) and pauses when you leave the
-  app: there is no background service, so it does not drain battery. If the system cannot decode the
-  format (e.g. some MKV/AVI), there is an "open with another app" button. Videos keep the screen on.
-- **Favorites:** mark them from the "⋮" menu in a selection (they show a star and appear in the
-  Favorites category; favorite folders open straight in the browser).
-- **Local trash bin:** deleting asks whether to move to trash or delete permanently. The trash keeps
-  everything for **30 days** (then it empties itself), lets you **restore** to the original folder
-  (recreating it if it no longer exists) and empty it. Sending to trash is instant (it copies nothing).
 - **Search by type, date and size:** the options bar has a *Filter* row (type: images, videos, audio,
   documents, folders · date: 24 h, 7 days, 30 days, 1 year · size: > 1 MB, > 10 MB, > 100 MB, > 1 GB).
   They combine with each other and with the text; with filters active it also searches subfolders (up
   to 6 levels). Each tap moves to the next option. Changing folder resets them.
+
+**Selection and operations**
 - **Multi-selection** (long-press): copy, cut, delete and, in "⋮": select all, invert selection,
-  favorites, rename, **share**, **compress to ZIP**, **extract ZIP** and **details**.
-- **Range selection:** with a selection active, long-press another item and everything from the last
-  one you selected up to it gets marked (in list or grid).
-- Create a folder and paste. Copy never overwrites: if the name exists, it creates `name (1)`.
-  Move is an instant rename on the same volume.
-- Back button: closes the viewer/selection, goes up a folder, or returns home.
+  favorites, rename, **share**, **compress to ZIP**, **extract ZIP** and **details**. **Range
+  selection:** with a selection active, long-press another item and everything from the last one you
+  selected up to it gets marked (in list or grid).
+- A **clipboard strip** shows what you copied/cut with *Paste here* / *Cancel*. Copy never overwrites
+  (`name (1)`) and keeps the modification date; move is an instant rename on the same volume.
+- **Progress and cancel** for long operations (copy, move, ZIP, extract, delete): a fixed strip with
+  the percentage and a *Cancel* button; a cancelled copy or ZIP leaves nothing half-written. Short
+  operations never show it.
+- Tap a **ZIP** to extract it (or open it with another app); tap an **APK** to install it (Android asks
+  you to allow FossFiles as an install source).
+- The Android media index is notified after changes, so the Gallery sees what you copy, move or delete
+  also on Android 8–10.
+
+**Built-in viewers**
+- **Image viewer:** zoom (pinch or double tap), previous/next, "open with another app", honors the EXIF
+  orientation of camera photos.
+- **Audio/video player:** previous/next, pause, a seek bar and automatic advance to the next track. It
+  requests audio focus (it pauses if another app takes it) and pauses when you leave the app: there is
+  no background service, so it does not drain battery. If the system cannot decode a format (e.g. some
+  MKV/AVI) there is an "open with another app" button. Videos keep the screen on.
+
+**Favorites and trash**
+- **Favorites:** mark them from "⋮" (they show a star and appear in the Favorites category; favorite
+  folders open straight in the browser).
+- **Local trash bin** (one per storage volume, so sending to trash is always an instant rename):
+  deleting asks whether to move to trash or delete permanently. Items are kept for the number of days
+  you choose (default 30), can be **restored** to the original folder (recreating it if needed) and the
+  trash can be emptied.
+
+**Robustness**
+- Works on Android 8 to 14+: runtime permission on 8–10 (with a shortcut to the app's settings if you
+  ticked "don't ask again"), "All files access" on 11+ (with fallbacks for phones that lack that screen).
+- Dialogs and what you typed survive screen rotation; the keyboard opens by itself and, when renaming a
+  file, the name without its extension is pre-selected.
+- Memory: thumbnails use a bounded cache that is released when the system is low on memory.
 
 ## Requirements
 - JDK 17 or newer (the project targets Java 17 and builds fine on JDK 21)
@@ -145,35 +177,44 @@ signed with it.
 > per-CPU builds. Only the strings for Spanish + English are packaged, which keeps the APK small.
 
 ## Testing
-The file logic (`FileRepository`), the trash bin (`TrashBin`) and the search filters (`SearchFilter`)
-do not depend on Android and have JVM tests:
+The file logic (`FileRepository`), the trash bin (`TrashBin`), the search filters (`SearchFilter`),
+progress/cancellation (`OpProgress`) and the volume helpers (`VolumePaths`) do not depend on Android and
+have JVM tests:
 
 ```bash
 ./gradlew testDebugUnitTest
 ```
 
-They cover: filtering by type/date/size, invalid names, copy-without-overwrite, moving to the same
-folder, a folder inside itself, deleting without following symlinks, search (depth, cancellation,
-cycles), hidden files, measuring folder contents, ZIP (round-trip, duplicate names, rejecting paths
-that try to escape) and the trash bin (restore to origin, recreating the folder, name conflicts,
-purging by age, symlinks).
+They cover: natural sort and accent/case-insensitive keys, filtering by type/date/size, invalid names,
+copy-without-overwrite (keeping dates, byte counting and cancelling without leftovers), moving to the
+same folder, a folder inside itself, deleting without following symlinks, search (depth, cancellation,
+cycles), hidden files, measuring folder contents, ZIP (round-trip, duplicate names, cancelling,
+rejecting paths that try to escape), volume detection, the clear message for Android's protected
+folders, and the trash bin (restore to origin, recreating the folder, name conflicts, purging by age,
+symlinks, several volumes).
 
 ## Behavior notes
 - Symlinks are never followed: copy/move/ZIP skip them; deleting removes only the link (they don't go
   through the trash bin).
-- The trash bin lives in `.fossfiles-trash/` in internal storage (hidden and with `.nomedia`, so it
-  doesn't show up in the gallery) and takes up space until you empty it. Items whose original folder
-  no longer exists are restored by recreating it; if that fails, to the root.
+- The trash bin lives in `.fossfiles-trash/` at the root of each volume (hidden and with `.nomedia`, so
+  it doesn't show up in the gallery) and takes up space until it is emptied or the retention time
+  passes. Items whose original folder no longer exists are restored by recreating it; if that fails,
+  to the root of their volume.
+- Since Android 11 the system itself blocks `Android/data` and `Android/obb` for every file manager
+  (even with "All files access"); FossFiles says so instead of showing an empty folder.
+- Long operations run while the app is open. There is no background service (that would need a
+  notification and permissions), so for very large copies keep the app on screen.
 - Search shows at most 5,000 results and warns you when there are more.
 - Cut and paste across volumes (e.g. to an SD card) copies and then deletes; if the original could not
   be deleted, the app tells you.
 - Folders cannot be shared directly: compress them to a ZIP first.
 - ZIP extraction creates a new folder next to the archive, rejects unsafe paths and stops if there is
   no free space.
-- The viewer does not open SVG (open those with another app).
-- The player uses the system codecs: whatever the phone cannot decode is opened with another app.
+- The viewer does not open SVG (open those with another app); the player uses the system codecs.
+- The interface is currently in Spanish.
 
 ## Possible next steps
+- English translation of the interface (string resources) and other languages
 - Subtitles, playback speed and background playback (which would need a service with a notification)
 - Search inside file contents (text documents)
 - Browsing inside a ZIP without extracting it

@@ -9,6 +9,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import com.fossfiles.app.ThemeMode
 
 // Negro puro (#000000) en fondo y superficies: en pantallas AMOLED esos
 // píxeles se apagan del todo en vez de emitir un gris oscuro, que es lo que
@@ -29,8 +30,13 @@ private val LightColors = lightColorScheme()
 // "estirar" al llegar al final de una lista, que es una animación del sistema.
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FossFilesTheme(content: @Composable () -> Unit) {
-    val colorScheme = if (isSystemInDarkTheme()) AmoledDarkColors else LightColors
+fun FossFilesTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
+    val dark = when (mode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val colorScheme = if (dark) AmoledDarkColors else LightColors
     MaterialTheme(colorScheme = colorScheme) {
         CompositionLocalProvider(LocalOverscrollConfiguration provides null, content = content)
     }

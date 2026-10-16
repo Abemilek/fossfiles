@@ -251,4 +251,134 @@ class FileRepositoryTest {
         assertFalse(SearchFilter().isActive)
         assertTrue(SearchFilter(size = SizeFilter.OVER_1GB).isActive)
     }
+
+    @Test
+    fun ordenNatural_sinMayusculas_yCarpetasPrimero() = withTempDir { root ->
+        listOf("foto10.jpg", "foto2.jpg", "Foto1.jpg", "arbol2.txt", "arbol.txt", "zeta.txt").forEach { root.file(it) }
+        root.dir("Zona")
+        val names = FileRepository.listDirectory(root, SortMode.NAME).map { it.name }
+        assertEquals(listOf("Zona", "arbol.txt", "arbol2.txt", "Foto1.jpg", "foto2.jpg", "foto10.jpg", "zeta.txt"), names)
+        val reversed = FileRepository.listDirectory(root, SortMode.NAME, reverse = true).map { it.name }
+        assertEquals("Zona", reversed.first())               // las carpetas siguen primero
+        assertEquals(1, reversed.indexOf("zeta.txt"))
+    }
+
+    @Test
+    fun claveDeOrden_ignoraAcentosYMayusculas() {
+        // Se prueba sobre el texto (no sobre archivos en disco) para no depender de la configuración regional.
+        assertEquals("arbol", FileRepository.sortKey("Árbol"))
+        assertEquals("canon", FileRepository.sortKey("CAÑÓN".replace("Ñ", "N")))
+        assertEquals("pingüino".replace("ü", "u"), FileRepository.sortKey("Pingüino"))
+        assertEquals("foto", FileRepository.sortKey("FOTO"))
+        assertTrue(FileRepository.naturalCompare(FileRepository.sortKey("árbol"), FileRepository.sortKey("Arbol2")) < 0)
+    }
+
+    @Test
+    fun naturalCompare_ceros_ynumerosLargos() {
+        assertTrue(FileRepository.naturalCompare("a2", "a10") < 0)
+        assertTrue(FileRepository.naturalCompare("a02", "a3") < 0)
+        assertEquals(0, FileRepository.naturalCompare("abc", "abc"))
+        assertTrue(FileRepository.naturalCompare("a", "ab") < 0)
+        assertTrue(FileRepository.naturalCompare("1", "01x") < 0)
+        assertTrue(FileRepository.naturalCompare("x99999999999999999999", "x100000000000000000000") < 0)
+    }
+
+    @Test
+    fun fileItemOf_coincideConElConstructorYCacheaTipo() = withTempDir { root ->
+        val f = root.file("a.APK", "12345")
+        val d = root.dir("carpeta")
+        val a = FileItem.of(f)
+        assertEquals(5L, a.sizeBytes)
+        assertEquals(f.lastModified(), a.lastModified)
+        assertEquals(FileKind.APK, a.kind())
+        assertEquals(f.absolutePath, a.path)
+        assertTrue(FileItem.of(d).isDirectory)
+        assertEquals(FileKind.ARCHIVE, FileItem.of(root.file("x.zip")).kind())
+        // enlace roto: no revienta, se comporta como el constructor normal
+        val broken = File(root, "roto")
+        Files.createSymbolicLink(broken.toPath(), File(root, "no-existe").toPath())
+        assertEquals("roto", FileItem.of(broken).name)
+    }
+
+    @Test
+    fun copiar_conservaFecha_cuentaBytes_yCancelaSinDejarBasura() = withTempDir { root ->
+        val src = root.file("grande.bin", "x".repeat(600_000)).also { it.setLastModified(1_600_000_000_000L) }
+        val dest = root.dir("destino")
+
+        val ok = OpProgress()
+        val copy = FileRepository.copy(src, dest, ok)
+        assertEquals(1_600_000_000_000L, copy.lastModified())
+        assertEquals(600_000L, ok.bytesDone)
+        assertTrue(ok.touched().contains(copy.path))
+
+        val cancelled = OpProgress().also { it.cancelled = true }
+        try {
+            FileRepository.copy(src, dest, cancelled)
+            fail("Se esperaba cancelación")
+        } catch (e: FileOpException) {
+            assertEquals(OpProgress.CANCELLED_MESSAGE, e.message)
+        }
+        assertEquals(listOf("grande.bin"), dest.list()!!.toList())   // la copia cancelada no dejó nada
+    }
+
+    @Test
+    fun zipYUnzip_cancelados_noDejanRestos() = withTempDir { root ->
+        val carpeta = root.dir("datos")
+        root.file("datos/a.txt", "hola")
+        val cancel = OpProgress().also { it.cancelled = true }
+        try { FileRepository.zip(listOf(carpeta), root, cancel); fail("cancelación") } catch (e: FileOpException) { }
+        assertFalse(File(root, "datos.zip").exists())
+
+        val zip = FileRepository.zip(listOf(carpeta), root)
+        val progress = OpProgress()
+        val out = FileRepository.unzip(zip, progress)
+        assertTrue(progress.bytesDone >= 4L)
+        assertEquals(FileRepository.zipUncompressedSize(zip), 4L)
+        FileRepository.delete(out)
+        try { FileRepository.unzip(zip, cancel); fail("cancelación") } catch (e: FileOpException) { }
+        assertFalse(File(root, "datos (1)").exists())
+    }
+
+    @Test
+    fun borrar_anotaRutasTocadas_yAvisaSiSeCancela() = withTempDir { root ->
+        root.file("d/a.txt")
+        root.file("d/sub/b.txt")
+        val p = OpProgress()
+        FileRepository.delete(File(root, "d"), p)
+        assertFalse(File(root, "d").exists())
+        assertEquals(2, p.touched().size)
+    }
+
+    @Test
+    fun carpetaProtegida_dajaUnMensajeClaro() = withTempDir { root ->
+        try {
+            FileRepository.listDirectory(File(root, "Android/data/com.otra.app"))
+            fail("Se esperaba un error")
+        } catch (e: FileOpException) {
+            assertTrue(e.message!!.contains("Android protege"))
+        }
+        try {
+            FileRepository.listDirectory(File(root, "otra-carpeta-inexistente"))
+            fail("Se esperaba un error")
+        } catch (e: FileOpException) {
+            assertEquals("No se puede leer esta carpeta", e.message)
+        }
+    }
+
+    @Test
+    fun volumenes_rutaRaizYPertenencia() {
+        assertEquals(File("/storage/ABCD-1234"), VolumePaths.rootFromAppDir(File("/storage/ABCD-1234/Android/data/com.fossfiles.app/files")))
+        assertEquals(null, VolumePaths.rootFromAppDir(File("/data/user/0/com.fossfiles.app/files")))
+        val roots = listOf(File("/storage/emulated/0"), File("/storage/ABCD-1234"))
+        assertEquals(File("/storage/ABCD-1234"), VolumePaths.volumeOf(File("/storage/ABCD-1234/DCIM/a.jpg"), roots))
+        assertEquals(File("/storage/emulated/0"), VolumePaths.volumeOf(File("/storage/emulated/0"), roots))
+        assertEquals(null, VolumePaths.volumeOf(File("/storage/ABCD-12345/x"), roots)) // prefijo parecido pero otro volumen
+    }
+
+    @Test
+    fun contarHijos() = withTempDir { root ->
+        root.file("a/1.txt"); root.file("a/2.txt")
+        assertEquals(2, FileRepository.countChildren(File(root, "a")))
+        assertEquals(-1, FileRepository.countChildren(File(root, "nada")))
+    }
 }

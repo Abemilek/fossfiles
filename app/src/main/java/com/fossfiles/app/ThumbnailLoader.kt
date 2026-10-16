@@ -32,6 +32,11 @@ object ThumbnailLoader {
 
     private val gate = Semaphore(3)
 
+    /** Libera la caché de miniaturas (al faltar memoria, al pasar a segundo plano o desde Ajustes). */
+    fun clear() {
+        cache.evictAll()
+    }
+
     /** Devuelve la miniatura o null si no se puede (formato raro, sin portada, archivo dañado). */
     suspend fun load(item: FileItem, sizePx: Int): Bitmap? {
         val key = "${item.file.absolutePath}|${item.lastModified}|$sizePx"

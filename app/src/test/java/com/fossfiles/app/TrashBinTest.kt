@@ -132,4 +132,30 @@ class TrashBinTest {
         assertEquals("huerfano.txt", bin.restore(e, dest).name)
         assertTrue(File(dest, "huerfano.txt").exists())
     }
+
+    @Test
+    fun variosVolumenes_cadaEntradaSabeASuPapelera() = withTempDir { root ->
+        val volA = File(root, "A").also { it.mkdirs() }
+        val volB = File(root, "B").also { it.mkdirs() }
+        val binA = TrashBin(File(volA, ".t"))
+        val binB = TrashBin(File(volB, ".t"))
+        binA.moveToTrash(volA.file("uno.txt"), now = 1L)
+        binB.moveToTrash(volB.file("dos.txt"), now = 2L)
+
+        val entry = binB.list().single()
+        val found = TrashBin.of(entry)!!
+        assertEquals(listOf("dos.txt"), found.list().map { it.name })
+        found.restore(entry, volB)
+        assertTrue(File(volB, "dos.txt").exists())
+        assertEquals(listOf("uno.txt"), binA.list().map { it.name })   // la otra papelera no se tocó
+    }
+
+    @Test
+    fun aLaPapelera_anotaRutasParaElIndiceMultimedia() = withTempDir { root ->
+        val bin = TrashBin(File(root, ".t"))
+        val p = OpProgress()
+        val f = root.file("foto.jpg")
+        bin.moveToTrash(f, progress = p)
+        assertTrue(p.touched().contains(f.path))
+    }
 }

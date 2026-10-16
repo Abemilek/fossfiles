@@ -5,8 +5,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,11 +34,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fossfiles.app.FileItem
 import com.fossfiles.app.FileKind
+import com.fossfiles.app.FileRepository
 import com.fossfiles.app.FileViewModel
 import com.fossfiles.app.ThumbnailLoader
 import com.fossfiles.app.openFileExternally
 import com.fossfiles.app.formatSize
 import com.fossfiles.app.kind
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,6 +55,8 @@ internal fun iconFor(item: FileItem): ImageVector = when (item.kind()) {
     FileKind.VIDEO -> Icons.Default.Movie
     FileKind.AUDIO -> Icons.Default.AudioFile
     FileKind.DOCUMENT -> Icons.Default.Description
+    FileKind.ARCHIVE -> Icons.Default.Archive
+    FileKind.APK -> Icons.Default.Android
     FileKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
 }
 
@@ -61,7 +70,7 @@ internal fun FileThumbnail(
 ) {
     val kind = item.kind()
     val px = with(LocalDensity.current) { requestSize.roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, item.file.absolutePath, item.lastModified, px) {
+    val bitmap by produceState<ImageBitmap?>(null, item.path, item.lastModified, px) {
         value = if (kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.AUDIO) {
             ThumbnailLoader.load(item, px)?.asImageBitmap()
         } else {
@@ -97,6 +106,21 @@ internal fun FileRow(
     favorite: Boolean = false
 ) {
     val highlight = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent
+    // Cuántos elementos tiene cada carpeta visible (se calcula aparte y solo para las filas en pantalla).
+    val childCount by produceState(-1, item.path) {
+        value = if (item.isDirectory) withContext(Dispatchers.IO) { FileRepository.countChildren(item.file) } else -1
+    }
+    val date = dateFmt.format(Date(item.lastModified))
+    val subtitle = if (item.isDirectory) {
+        val count = when {
+            childCount < 0 -> null
+            childCount == 1 -> "1 elemento"
+            else -> "$childCount elementos"
+        }
+        listOfNotNull(count, date).joinToString(" · ")
+    } else {
+        "${formatSize(item.sizeBytes)} · $date"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -122,11 +146,7 @@ internal fun FileRow(
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                text = if (item.isDirectory) dateFmt.format(Date(item.lastModified))
-                       else "${formatSize(item.sizeBytes)} · ${dateFmt.format(Date(item.lastModified))}",
-                style = MaterialTheme.typography.bodySmall
-            )
+            Text(text = subtitle, style = MaterialTheme.typography.bodySmall)
         }
         if (favorite) {
             Spacer(Modifier.width(8.dp))
@@ -196,7 +216,12 @@ internal fun FileGridCell(
     }
 }
 
-/** Lista o cuadrícula de archivos, según [grid]. Tocar abre; con selección activa, tocar alterna. */
+/**
+ * Lista o cuadrícula de archivos, según [grid]. Tocar abre; con selección activa, tocar alterna.
+ * Si [interactive] es false (la lista aún es la de la carpeta anterior) se ignoran los toques, para no
+ * abrir por error algo de otra carpeta. Los estados de desplazamiento se pueden pasar de fuera para
+ * poder recordar y restaurar la posición.
+ */
 @Composable
 internal fun FileCollection(
     items: List<FileItem>,
@@ -205,35 +230,39 @@ internal fun FileCollection(
     grid: Boolean,
     onOpen: (FileItem) -> Unit,
     onToggle: (FileItem) -> Unit,
-    onLongPress: (FileItem) -> Unit
+    onLongPress: (FileItem) -> Unit,
+    interactive: Boolean = true,
+    listState: LazyListState = rememberLazyListState(),
+    gridState: LazyGridState = rememberLazyGridState()
 ) {
     val selecting = selection.isNotEmpty()
     if (grid) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 104.dp),
+            state = gridState,
             contentPadding = PaddingValues(8.dp)
         ) {
-            gridItems(items, key = { it.file.absolutePath }) { item ->
+            gridItems(items, key = { it.path }) { item ->
                 FileGridCell(
                     item = item,
-                    selected = item.file.absolutePath in selection,
-                    onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onLongPress(item) },
-                    favorite = item.file.absolutePath in favorites
+                    selected = item.path in selection,
+                    onClick = { if (interactive) { if (selecting) onToggle(item) else onOpen(item) } },
+                    onLongClick = { if (interactive) onLongPress(item) },
+                    favorite = item.path in favorites
                 )
             }
         }
     } else {
         val dateFmt = rememberDateFormat()
-        LazyColumn {
-            items(items, key = { it.file.absolutePath }) { item ->
+        LazyColumn(state = listState) {
+            items(items, key = { it.path }) { item ->
                 FileRow(
                     item = item,
-                    selected = item.file.absolutePath in selection,
+                    selected = item.path in selection,
                     dateFmt = dateFmt,
-                    onClick = { if (selecting) onToggle(item) else onOpen(item) },
-                    onLongClick = { onLongPress(item) },
-                    favorite = item.file.absolutePath in favorites
+                    onClick = { if (interactive) { if (selecting) onToggle(item) else onOpen(item) } },
+                    onLongClick = { if (interactive) onLongPress(item) },
+                    favorite = item.path in favorites
                 )
                 HorizontalDivider()
             }
@@ -243,12 +272,13 @@ internal fun FileCollection(
 
 /**
  * Tocar un elemento: las carpetas se abren en el explorador, las imágenes en el visor propio y los
- * audios/videos en el reproductor propio (con los demás de [source]); el resto, con la app externa
- * que elija el sistema.
+ * audios/videos en el reproductor propio (con los demás de [source]); un ZIP pregunta si extraerlo;
+ * el resto, con la app externa que elija el sistema.
  */
 internal fun openItem(viewModel: FileViewModel, context: Context, item: FileItem, source: List<FileItem>) {
     when {
         item.isDirectory -> viewModel.openFolder(item.file)
+        item.file.extension.equals("zip", ignoreCase = true) -> viewModel.zipPrompt.value = item
         viewModel.canPreview(item) -> viewModel.openViewer(item, source)
         viewModel.canPlay(item) -> viewModel.openMedia(item, source)
         else -> openFileExternally(context, item.file)?.let { viewModel.message.value = it }

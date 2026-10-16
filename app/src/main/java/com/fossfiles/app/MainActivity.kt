@@ -1,5 +1,6 @@
 package com.fossfiles.app
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -24,10 +25,14 @@ import com.fossfiles.app.ui.FossFilesTheme
 import com.fossfiles.app.ui.HomeScreen
 import com.fossfiles.app.ui.ImageViewer
 import com.fossfiles.app.ui.MediaPlayerOverlay
-import com.fossfiles.app.ui.TrashScreen
 import com.fossfiles.app.ui.MessageBanner
 import com.fossfiles.app.ui.PlainButton
-import java.io.File
+import com.fossfiles.app.ui.PlainTextButton
+import com.fossfiles.app.ui.ProgressStrip
+import com.fossfiles.app.ui.SettingsScreen
+import com.fossfiles.app.ui.TrashScreen
+import com.fossfiles.app.ui.ZipPromptDialog
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -44,8 +49,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Registro LOCAL del último error inesperado (no se envía a ningún lado: no hay Internet).
+        CrashLog.install(this)
         setContent {
-            FossFilesTheme {
+            FossFilesTheme(viewModel.themeMode.value) {
                 var hasPermission by remember { mutableStateOf(hasStoragePermission()) }
                 val message by viewModel.message
 
@@ -65,9 +72,26 @@ class MainActivity : ComponentActivity() {
                             ScreenMode.BROWSE -> FileListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
                             ScreenMode.CATEGORY -> CategoryListScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
                             ScreenMode.TRASH -> TrashScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
+                            ScreenMode.SETTINGS -> SettingsScreen(viewModel = viewModel, onBack = { viewModel.goHome() })
                         }
                     } else {
-                        PermissionScreen(onGrant = { requestStoragePermission() })
+                        PermissionScreen(
+                            onGrant = { requestStoragePermission() },
+                            onOpenSettings = { openAppSettings() }
+                        )
+                    }
+
+                    // Al tocar un ZIP: ¿extraerlo o abrirlo con otra app?
+                    viewModel.zipPrompt.value?.let { item ->
+                        ZipPromptDialog(
+                            name = item.name,
+                            onExtract = { viewModel.extractZip(item) },
+                            onOpenWith = {
+                                viewModel.zipPrompt.value = null
+                                openFileExternally(this@MainActivity, item.file)?.let { viewModel.message.value = it }
+                            },
+                            onDismiss = { viewModel.zipPrompt.value = null }
+                        )
                     }
 
                     // Visor de imágenes: va encima de todo (su botón Atrás se registra después, así que gana).
@@ -96,13 +120,19 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Aviso dentro de la app (un Toast del sistema se anima al aparecer y desaparecer).
-                    message?.let { text ->
-                        MessageBanner(
-                            text = text,
-                            onDismiss = { viewModel.dismissMessage() },
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                        )
+                    // Abajo: progreso de la operación en curso (con «Cancelar») y avisos. Sin animaciones
+                    // (un Toast del sistema se anima al aparecer y desaparecer). El aviso se quita solo a los 6 s.
+                    Column(Modifier.align(Alignment.BottomCenter)) {
+                        viewModel.progressInfo.value?.let { info ->
+                            ProgressStrip(info = info, onCancel = { viewModel.cancelWork() })
+                        }
+                        message?.let { text ->
+                            LaunchedEffect(text) {
+                                delay(6000)
+                                viewModel.dismissMessage()
+                            }
+                            MessageBanner(text = text, onDismiss = { viewModel.dismissMessage() })
+                        }
                     }
                 }
 
@@ -110,8 +140,8 @@ class MainActivity : ComponentActivity() {
                 // (por ejemplo, tras volver de la pantalla de Ajustes).
                 DisposableLifecycleCheck {
                     hasPermission = hasStoragePermission()
-                    // Al volver a la app (p. ej. tras conceder el permiso o descargar algo) se
-                    // actualizan los recientes y el almacenamiento del Home.
+                    // Al volver a la app (p. ej. tras conceder el permiso, insertar una tarjeta SD o descargar
+                    // algo) se actualizan volúmenes y recientes del Home.
                     if (hasPermission && viewModel.screenMode.value == ScreenMode.HOME) viewModel.refreshHome()
                 }
             }
@@ -122,6 +152,17 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         viewModel.pausePlayback()
+    }
+
+    // Con poca memoria se sueltan las miniaturas (se vuelven a generar al hacer falta).
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_CRITICAL_LEVEL) ThumbnailLoader.clear()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        ThumbnailLoader.clear()
     }
 
     private fun handleBack() {
@@ -147,23 +188,53 @@ class MainActivity : ComponentActivity() {
 
     private fun requestStoragePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-            intent.data = Uri.parse("package:$packageName")
-            startActivity(intent)
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.data = Uri.parse("package:$packageName")
+                startActivity(intent)
+            } catch (e: ActivityNotFoundException) {
+                // Algunos fabricantes no incluyen esa pantalla: se prueba la lista general y, si tampoco, los ajustes de la app.
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (e2: ActivityNotFoundException) {
+                    openAppSettings()
+                }
+            }
         } else {
-            requestPermissions(
-                arrayOf(
-                    android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                ),
-                1001
-            )
+            val prefs = getSharedPreferences("fossfiles", MODE_PRIVATE)
+            val askedBefore = prefs.getBoolean("askedStorage", false)
+            if (askedBefore && !shouldShowRequestPermissionRationale(android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                // El usuario marcó "No volver a preguntar": Android ya no muestra el cuadro, solo se activa a mano.
+                openAppSettings()
+            } else {
+                prefs.edit().putBoolean("askedStorage", true).apply()
+                requestPermissions(
+                    arrayOf(
+                        android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    ),
+                    1001
+                )
+            }
         }
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        } catch (e: ActivityNotFoundException) {
+            // sin pantalla de ajustes disponible: no hay nada más que ofrecer
+        }
+    }
+
+    private companion object {
+        // ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL (15): la constante está marcada como obsoleta, el valor no cambia.
+        const val TRIM_MEMORY_RUNNING_CRITICAL_LEVEL = 15
     }
 }
 
 @Composable
-private fun PermissionScreen(onGrant: () -> Unit) {
+private fun PermissionScreen(onGrant: () -> Unit, onOpenSettings: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -181,6 +252,8 @@ private fun PermissionScreen(onGrant: () -> Unit) {
         )
         Spacer(Modifier.height(24.dp))
         PlainButton(text = "Conceder acceso", onClick = onGrant)
+        Spacer(Modifier.height(8.dp))
+        PlainTextButton("Abrir ajustes de la app", onOpenSettings)
     }
 }
 

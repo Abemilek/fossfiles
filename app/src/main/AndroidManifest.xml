@@ -20,17 +20,25 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
 
+    <!-- Para poder instalar un .apk al tocarlo en el explorador (Android pide además
+         autorizar a FossFiles como origen de instalación; no tiene relación con Internet). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="false"
         android:label="FossFiles"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
+        android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="false">
 
+        <!-- adjustResize: al abrir el teclado (renombrar, buscar) la pantalla se reduce en vez de
+             que el teclado tape el campo. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="FossFiles">
+            android:label="FossFiles"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

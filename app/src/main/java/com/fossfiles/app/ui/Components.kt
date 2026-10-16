@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,18 +29,26 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.fossfiles.app.ProgressInfo
 
 // Todo lo de este archivo existe para evitar los componentes de Material que animan
 // (ripple, elevación al pulsar, hojas y menús deslizantes, campos con etiqueta flotante).
@@ -86,6 +96,44 @@ fun PlainTextButton(text: String, onClick: () -> Unit) {
     )
 }
 
+/** Marco visual común de los campos de texto (fondo redondeado, ícono, texto de ayuda y borrar). */
+@Composable
+private fun FieldFrame(
+    isEmpty: Boolean,
+    placeholder: String,
+    textStyle: TextStyle,
+    leadingIcon: ImageVector?,
+    onClear: (() -> Unit)?,
+    inner: @Composable () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (leadingIcon != null) {
+            Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(12.dp))
+        }
+        Box(Modifier.weight(1f)) {
+            if (isEmpty) {
+                Text(placeholder, style = textStyle.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+            }
+            inner()
+        }
+        if (onClear != null && !isEmpty) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Borrar búsqueda",
+                modifier = Modifier.size(20.dp).plainClickable(onClick = onClear)
+            )
+        }
+    }
+}
+
 @Composable
 fun PlainTextField(
     value: String,
@@ -106,34 +154,30 @@ fun PlainTextField(
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { onDone() }),
         modifier = modifier,
-        decorationBox = { inner ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (leadingIcon != null) {
-                    Icon(leadingIcon, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(12.dp))
-                }
-                Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) {
-                        Text(placeholder, style = textStyle.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
-                    }
-                    inner()
-                }
-                if (onClear != null && value.isNotEmpty()) {
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Borrar búsqueda",
-                        modifier = Modifier.size(20.dp).plainClickable(onClick = onClear)
-                    )
-                }
-            }
-        }
+        decorationBox = { inner -> FieldFrame(value.isEmpty(), placeholder, textStyle, leadingIcon, onClear, inner) }
+    )
+}
+
+/** Variante con selección de texto controlada (para preseleccionar el nombre al renombrar). */
+@Composable
+fun PlainTextField(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    onDone: () -> Unit = {}
+) {
+    val textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = textStyle,
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
+        modifier = modifier,
+        decorationBox = { inner -> FieldFrame(value.text.isEmpty(), placeholder, textStyle, null, null, inner) }
     )
 }
 
@@ -164,22 +208,45 @@ fun ModalOverlay(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> U
     }
 }
 
+/**
+ * Pide un nombre. El teclado se abre solo y, al renombrar un archivo, queda seleccionado el nombre sin
+ * la extensión ([selectBaseName]). Lo escrito sobrevive a girar la pantalla.
+ */
 @Composable
-fun NameInputDialog(title: String, initialValue: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
-    var text by remember { mutableStateOf(initialValue) }
+fun NameInputDialog(
+    title: String,
+    initialValue: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+    selectBaseName: Boolean = false
+) {
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        val dot = initialValue.lastIndexOf('.')
+        val end = if (selectBaseName && dot > 0) dot else initialValue.length
+        mutableStateOf(TextFieldValue(initialValue, TextRange(0, end)))
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try {
+            focusRequester.requestFocus()
+        } catch (e: IllegalStateException) {
+            // el campo aún no estaba listo: el usuario puede tocarlo
+        }
+    }
     ModalOverlay(onDismiss = onDismiss) {
         Text(title, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.size(16.dp))
         PlainTextField(
-            value = text,
-            onValueChange = { text = it },
+            value = field,
+            onValueChange = { field = it },
             placeholder = "Nombre",
-            onDone = { if (text.isNotBlank()) onConfirm(text) }
+            modifier = Modifier.focusRequester(focusRequester),
+            onDone = { if (field.text.isNotBlank()) onConfirm(field.text) }
         )
         Spacer(Modifier.size(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             PlainTextButton("Cancelar", onDismiss)
-            PlainTextButton("Aceptar") { if (text.isNotBlank()) onConfirm(text) }
+            PlainTextButton("Aceptar") { if (field.text.isNotBlank()) onConfirm(field.text) }
         }
     }
 }
@@ -207,13 +274,19 @@ fun ConfirmDialog(
 
 /** Eliminar: a la papelera (se puede deshacer) o para siempre. */
 @Composable
-fun DeleteChoiceDialog(names: List<String>, onTrash: () -> Unit, onPermanent: () -> Unit, onDismiss: () -> Unit) {
+fun DeleteChoiceDialog(
+    names: List<String>,
+    trashDays: Int,
+    onTrash: () -> Unit,
+    onPermanent: () -> Unit,
+    onDismiss: () -> Unit
+) {
     val what = if (names.size == 1) "«${names.first()}»" else "${names.size} elementos"
     ModalOverlay(onDismiss = onDismiss) {
         Text("¿Eliminar $what?", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.size(12.dp))
         Text(
-            "Si lo envías a la papelera podrás restaurarlo durante 30 días. Si lo eliminas definitivamente, " +
+            "Si lo envías a la papelera podrás restaurarlo durante $trashDays días. Si lo eliminas definitivamente, " +
                 "se borra de inmediato y, si es una carpeta, también todo lo que contiene.",
             style = MaterialTheme.typography.bodyMedium
         )
@@ -238,5 +311,63 @@ fun MessageBanner(text: String, onDismiss: () -> Unit, modifier: Modifier = Modi
             .padding(16.dp)
     ) {
         Text(text, color = MaterialTheme.colorScheme.inverseOnSurface)
+    }
+}
+
+/** Pregunta qué hacer al tocar un ZIP: extraerlo aquí o abrirlo con otra app. */
+@Composable
+fun ZipPromptDialog(name: String, onExtract: () -> Unit, onOpenWith: () -> Unit, onDismiss: () -> Unit) {
+    ModalOverlay(onDismiss = onDismiss) {
+        Text("«$name»", style = MaterialTheme.typography.titleLarge, maxLines = 2)
+        Spacer(Modifier.size(12.dp))
+        Text(
+            "Es un archivo ZIP. Si lo extraes, se crea una carpeta nueva con su contenido junto a él.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            PlainTextButton("Extraer aquí", onExtract)
+            PlainTextButton("Abrir con otra app", onOpenWith)
+            PlainTextButton("Cancelar", onDismiss)
+        }
+    }
+}
+
+/**
+ * Franja de progreso de una operación larga (copiar, mover, comprimir...): título, avance, y un botón para
+ * cancelar. La barra se dibuja a mano (sin animación) y solo aparece si la operación tarda un poco.
+ */
+@Composable
+fun ProgressStrip(info: ProgressInfo, onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(info.title + "…", style = MaterialTheme.typography.titleSmall)
+                if (info.detail.isNotEmpty()) Text(info.detail, style = MaterialTheme.typography.bodySmall)
+            }
+            PlainTextButton("Cancelar", onCancel)
+        }
+        val fraction = info.fraction
+        if (fraction != null) {
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            }
+        }
     }
 }

@@ -9,7 +9,10 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
+import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
+import java.text.Normalizer
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -33,28 +36,102 @@ object FileRepository {
     const val MAX_SEARCH_RESULTS = 5_000
     const val MAX_SEARCH_DEPTH = 6
     const val MAX_ZIP_ENTRIES = 100_000
+    private const val COPY_BUFFER_SIZE = 256 * 1024
+
+    // Android 11+ no deja ver estas carpetas ni siquiera con "acceso a todos los archivos".
+    private val PROTECTED_DIR = Regex(".*/Android/(data|obb)(/.*)?")
 
     // ---------- Listado y orden ----------
 
-    fun listDirectory(dir: File, sortMode: SortMode = SortMode.NAME, showHidden: Boolean = true): List<FileItem> {
-        val children = dir.listFiles() ?: throw FileOpException("No se puede leer esta carpeta")
-        return sortItems(
-            children.filter { showHidden || !it.name.startsWith(".") }.map { FileItem(it) },
-            sortMode
-        )
+    fun listDirectory(
+        dir: File,
+        sortMode: SortMode = SortMode.NAME,
+        showHidden: Boolean = true,
+        reverse: Boolean = false
+    ): List<FileItem> {
+        val children = dir.listFiles() ?: throw FileOpException(unreadableMessage(dir))
+        val items = ArrayList<FileItem>(children.size)
+        for (child in children) {
+            if (!showHidden && child.name.startsWith(".")) continue
+            items.add(FileItem.of(child))
+        }
+        return sortItems(items, sortMode, reverse)
     }
 
-    fun sortItems(items: List<FileItem>, sortMode: SortMode): List<FileItem> {
-        val byName = compareBy<FileItem> { it.name.lowercase() }
-        val comparator: Comparator<FileItem> = when (sortMode) {
-            SortMode.NAME -> byName
-            SortMode.DATE -> compareByDescending<FileItem> { it.lastModified }.then(byName)
-            SortMode.SIZE -> compareByDescending<FileItem> { it.sizeBytes }.then(byName)
-            SortMode.TYPE -> compareBy<FileItem> { it.file.extension.lowercase() }.then(byName)
+    private fun unreadableMessage(dir: File): String =
+        if (PROTECTED_DIR.matches(dir.absolutePath)) {
+            "Android protege esta carpeta (Android/data y Android/obb): ninguna app de archivos puede abrirla desde Android 11"
+        } else {
+            "No se puede leer esta carpeta"
         }
-        // Carpetas siempre primero, sea cual sea el orden elegido.
-        return items.sortedWith(compareByDescending<FileItem> { it.isDirectory }.then(comparator))
+
+    /**
+     * Ordena con "orden natural" (foto2 antes que foto10, sin distinguir mayúsculas ni acentos) y con
+     * las carpetas siempre primero. [reverse] invierte el orden dentro de carpetas y archivos.
+     * Las claves de orden se calculan una sola vez por elemento, no en cada comparación.
+     */
+    fun sortItems(items: List<FileItem>, sortMode: SortMode, reverse: Boolean = false): List<FileItem> {
+        class Keyed(val item: FileItem, val key: String, val ext: String)
+
+        val keyed = items.map {
+            Keyed(it, sortKey(it.name), if (sortMode == SortMode.TYPE) it.file.extension.lowercase() else "")
+        }
+        val byName = Comparator<Keyed> { a, b -> naturalCompare(a.key, b.key) }
+        var comparator: Comparator<Keyed> = when (sortMode) {
+            SortMode.NAME -> byName
+            SortMode.DATE -> Comparator<Keyed> { a, b -> b.item.lastModified.compareTo(a.item.lastModified) }.then(byName)
+            SortMode.SIZE -> Comparator<Keyed> { a, b -> b.item.sizeBytes.compareTo(a.item.sizeBytes) }.then(byName)
+            SortMode.TYPE -> Comparator<Keyed> { a, b -> a.ext.compareTo(b.ext) }.then(byName)
+        }
+        if (reverse) comparator = comparator.reversed()
+        val foldersFirst = Comparator<Keyed> { a, b -> b.item.isDirectory.compareTo(a.item.isDirectory) }
+        return keyed.sortedWith(foldersFirst.then(comparator)).map { it.item }
     }
+
+    /** Minúsculas y sin acentos ("Árbol" ordena junto a "arbol"). Solo normaliza si hace falta. */
+    internal fun sortKey(name: String): String {
+        val lower = name.lowercase()
+        if (lower.all { it.code < 128 }) return lower
+        val decomposed = Normalizer.normalize(lower, Normalizer.Form.NFD)
+        return decomposed.filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
+    }
+
+    /** Compara texto tratando los números como números: "a2" < "a10", "a02" == "a2" en valor. */
+    internal fun naturalCompare(a: String, b: String): Int {
+        var i = 0
+        var j = 0
+        while (i < a.length && j < b.length) {
+            val ca = a[i]
+            val cb = b[j]
+            if (ca.isDigit() && cb.isDigit()) {
+                var ei = i
+                while (ei < a.length && a[ei].isDigit()) ei++
+                var ej = j
+                while (ej < b.length && b[ej].isDigit()) ej++
+                var si = i
+                while (si < ei - 1 && a[si] == '0') si++ // sin ceros a la izquierda (queda al menos un dígito)
+                var sj = j
+                while (sj < ej - 1 && b[sj] == '0') sj++
+                val la = ei - si
+                val lb = ej - sj
+                if (la != lb) return la.compareTo(lb)
+                for (k in 0 until la) {
+                    val d = a[si + k].compareTo(b[sj + k])
+                    if (d != 0) return d
+                }
+                i = ei
+                j = ej
+            } else {
+                if (ca != cb) return ca.compareTo(cb)
+                i++
+                j++
+            }
+        }
+        return (a.length - i).compareTo(b.length - j)
+    }
+
+    /** Cuántos elementos hay dentro de una carpeta, o -1 si no se puede leer. */
+    fun countChildren(dir: File): Int = dir.list()?.size ?: -1
 
     // ---------- Nombres ----------
 
@@ -104,12 +181,14 @@ object FileRepository {
     }
 
     /** Borra un archivo o carpeta. Los enlaces simbólicos se borran como enlace, sin seguirlos. */
-    fun delete(item: File) {
+    fun delete(item: File, progress: OpProgress? = null) {
         val path = item.toPath()
         if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw FileOpException("«${item.name}» ya no existe")
         try {
             Files.walkFileTree(path, object : SimpleFileVisitor<Path>() {
                 override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    progress?.check()
+                    progress?.touch(file.toString())
                     Files.delete(file)
                     return FileVisitResult.CONTINUE
                 }
@@ -128,14 +207,17 @@ object FileRepository {
     // ---------- Copiar / mover ----------
 
     /** Copia [source] dentro de [destDir]. Si el nombre ya existe, usa "nombre (1)". */
-    fun copy(source: File, destDir: File): File {
+    fun copy(source: File, destDir: File, progress: OpProgress? = null): File {
         checkTransfer(source, destDir)
         val target = uniqueTarget(destDir, source.name, source.isDirectory)
         try {
-            copyTree(source, target)
+            copyTree(source, target, progress)
+        } catch (e: FileOpException) {
+            deleteQuietly(target) // cancelado: no se deja una copia a medias
+            throw e
         } catch (e: IOException) {
             deleteQuietly(target) // target era un nombre libre: todo lo que haya ahí lo creamos nosotros
-            throw FileOpException("No se pudo copiar «${source.name}»")
+            throw FileOpException(describeIo(e, "No se pudo copiar «${source.name}»"))
         }
         return target
     }
@@ -144,26 +226,46 @@ object FileRepository {
      * Mueve [source] a [destDir]. Primero intenta un renombrado (instantáneo en el mismo
      * volumen); solo si falla copia y borra el original. Mover a la misma carpeta no hace nada.
      */
-    fun move(source: File, destDir: File): File {
+    fun move(source: File, destDir: File, progress: OpProgress? = null): File {
         checkTransfer(source, destDir)
         val parent = source.parentFile
         if (parent != null && canonical(parent) == canonical(destDir)) return source
         val target = uniqueTarget(destDir, source.name, source.isDirectory)
-        if (source.renameTo(target)) return target
+        if (source.renameTo(target)) {
+            progress?.touch(source.path)
+            progress?.touch(target.path)
+            return target
+        }
 
         // Otro volumen (o renombrado no permitido): copiar y luego borrar el original.
         try {
-            copyTree(source, target)
+            copyTree(source, target, progress)
+        } catch (e: FileOpException) {
+            deleteQuietly(target)
+            throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException("No se pudo mover «${source.name}»")
+            throw FileOpException(describeIo(e, "No se pudo mover «${source.name}»"))
         }
         try {
-            delete(source)
+            delete(source, progress)
         } catch (e: FileOpException) {
+            if (e.message == OpProgress.CANCELLED_MESSAGE) throw e
             throw FileOpException("Se copió «${source.name}» pero no se pudo borrar el original")
         }
         return target
+    }
+
+    /** Traduce los errores de disco más comunes a algo que el usuario entienda. */
+    private fun describeIo(e: IOException, fallback: String): String {
+        val text = e.message ?: ""
+        return when {
+            text.contains("ENOSPC", ignoreCase = true) || text.contains("No space", ignoreCase = true) ->
+                "No hay espacio suficiente en el destino"
+            text.contains("EACCES", ignoreCase = true) || text.contains("Permission denied", ignoreCase = true) ->
+                "Sin permiso para escribir ahí (¿carpeta protegida o de solo lectura?)"
+            else -> fallback
+        }
     }
 
     private fun checkTransfer(source: File, destDir: File) {
@@ -180,20 +282,45 @@ object FileRepository {
     }
 
     /** Copia un archivo o árbol de carpetas sin seguir enlaces simbólicos (se omiten). */
-    private fun copyTree(source: File, target: File) {
+    private fun copyTree(source: File, target: File, progress: OpProgress?) {
         val src = source.toPath()
         val dst = target.toPath()
+        val buffer = ByteArray(COPY_BUFFER_SIZE) // un solo búfer para todo el árbol
         Files.walkFileTree(src, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                progress?.check()
                 Files.createDirectory(dst.resolve(src.relativize(dir).toString()))
                 return FileVisitResult.CONTINUE
             }
 
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                if (attrs.isRegularFile) Files.copy(file, dst.resolve(src.relativize(file).toString()))
+                if (attrs.isRegularFile) {
+                    copyFile(file, dst.resolve(src.relativize(file).toString()), attrs.lastModifiedTime(), buffer, progress)
+                }
                 return FileVisitResult.CONTINUE
             }
         })
+    }
+
+    /** Copia un archivo por bloques (permite mostrar progreso y cancelar) y conserva su fecha de modificación. */
+    private fun copyFile(from: Path, to: Path, modified: FileTime, buffer: ByteArray, progress: OpProgress?) {
+        Files.newInputStream(from).use { input ->
+            Files.newOutputStream(to, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { output ->
+                while (true) {
+                    progress?.check()
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    output.write(buffer, 0, n)
+                    progress?.addBytes(n.toLong())
+                }
+            }
+        }
+        try {
+            Files.setLastModifiedTime(to, modified)
+        } catch (e: IOException) {
+            // algunos sistemas de archivos (p. ej. tarjetas SD) no permiten fijar la fecha: no es un error
+        }
+        progress?.touch(to.toString())
     }
 
     // ---------- Búsqueda y categorías ----------
@@ -208,7 +335,8 @@ object FileRepository {
         sortMode: SortMode = SortMode.NAME,
         isActive: () -> Boolean = { true },
         showHidden: Boolean = true,
-        filter: SearchFilter = SearchFilter()
+        filter: SearchFilter = SearchFilter(),
+        reverse: Boolean = false
     ): SearchResult {
         val needle = query.trim()
         val results = ArrayList<FileItem>()
@@ -217,7 +345,7 @@ object FileRepository {
         walk(root, MAX_SEARCH_DEPTH, isActive, skipHidden = !showHidden) { f ->
             // Con el texto vacío coincide todo: así se puede buscar solo por tipo, fecha o tamaño.
             if (f.name.contains(needle, ignoreCase = true)) {
-                val item = FileItem(f)
+                val item = FileItem.of(f)
                 if (filter.matches(item, now)) {
                     if (results.size >= MAX_SEARCH_RESULTS) {
                         truncated = true
@@ -228,7 +356,7 @@ object FileRepository {
             }
             true
         }
-        return SearchResult(sortItems(results, sortMode), truncated)
+        return SearchResult(sortItems(results, sortMode, reverse), truncated)
     }
 
     /**
@@ -247,7 +375,7 @@ object FileRepository {
             if (!dir.isDirectory) continue
             walk(dir, maxDepth, isActive, skipHidden = !showHidden) { f ->
                 if (f.isFile && (extensions == null || f.extension.lowercase() in extensions)) {
-                    results.add(FileItem(f))
+                    results.add(FileItem.of(f))
                 }
                 true
             }
@@ -284,8 +412,24 @@ object FileRepository {
 
     // ---------- ZIP (java.util.zip, sin librerías) ----------
 
+    /** Suma de bytes de varios elementos (para calcular el porcentaje de progreso). */
+    fun totalBytes(files: List<File>, isActive: () -> Boolean = { true }): Long =
+        files.sumOf { measure(it, isActive).bytes }
+
+    /** Tamaño total sin comprimir de un ZIP (0 si no se puede leer). */
+    fun zipUncompressedSize(zipFile: File): Long = try {
+        ZipFile(zipFile).use { zf ->
+            var total = 0L
+            val entries = zf.entries()
+            while (entries.hasMoreElements()) total += entries.nextElement().size.coerceAtLeast(0L)
+            total
+        }
+    } catch (e: IOException) {
+        0L
+    }
+
     /** Comprime [sources] en un .zip dentro de [destDir]. Devuelve el ZIP creado. */
-    fun zip(sources: List<File>, destDir: File): File {
+    fun zip(sources: List<File>, destDir: File, progress: OpProgress? = null): File {
         if (sources.isEmpty()) throw FileOpException("No hay nada que comprimir")
         if (!destDir.isDirectory) throw FileOpException("La carpeta de destino no existe")
         if (sources.map { it.name }.toSet().size != sources.size) {
@@ -302,6 +446,7 @@ object FileRepository {
         }
         val target = uniqueTarget(destDir, "$base.zip", false)
         val targetPath = target.toPath()
+        val buffer = ByteArray(COPY_BUFFER_SIZE)
         try {
             ZipOutputStream(BufferedOutputStream(FileOutputStream(target))).use { zos ->
                 for (src in sources) {
@@ -309,6 +454,7 @@ object FileRepository {
                     val parent = srcPath.parent ?: srcPath
                     Files.walkFileTree(srcPath, object : SimpleFileVisitor<Path>() {
                         override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                            progress?.check()
                             val entry = ZipEntry(entryName(parent, dir) + "/")
                             entry.time = attrs.lastModifiedTime().toMillis()
                             zos.putNextEntry(entry)
@@ -321,17 +467,29 @@ object FileRepository {
                             val entry = ZipEntry(entryName(parent, file))
                             entry.time = attrs.lastModifiedTime().toMillis()
                             zos.putNextEntry(entry)
-                            Files.copy(file, zos)
+                            Files.newInputStream(file).use { input ->
+                                while (true) {
+                                    progress?.check()
+                                    val n = input.read(buffer)
+                                    if (n < 0) break
+                                    zos.write(buffer, 0, n)
+                                    progress?.addBytes(n.toLong())
+                                }
+                            }
                             zos.closeEntry()
                             return FileVisitResult.CONTINUE
                         }
                     })
                 }
             }
+        } catch (e: FileOpException) {
+            deleteQuietly(target) // cancelado: no queda un ZIP incompleto
+            throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException("No se pudo crear el ZIP")
+            throw FileOpException(describeIo(e, "No se pudo crear el ZIP"))
         }
+        progress?.touch(target.path)
         return target
     }
 
@@ -342,7 +500,7 @@ object FileRepository {
      * Extrae [zipFile] en una carpeta nueva junto a él (con el nombre del ZIP). Rechaza rutas
      * que intenten salir de esa carpeta y se detiene si no hay espacio suficiente.
      */
-    fun unzip(zipFile: File): File {
+    fun unzip(zipFile: File, progress: OpProgress? = null): File {
         if (!zipFile.isFile) throw FileOpException("«${zipFile.name}» no es un archivo")
         val destParent = zipFile.parentFile ?: throw FileOpException("No se puede extraer aquí")
         val rawBase = if (zipFile.name.endsWith(".zip", ignoreCase = true)) zipFile.name.dropLast(4) else zipFile.name
@@ -353,9 +511,10 @@ object FileRepository {
                 if (!target.mkdir()) throw FileOpException("No se pudo crear la carpeta de destino")
                 val rootPath = target.canonicalPath
                 var budget = target.usableSpace
-                val buffer = ByteArray(64 * 1024)
+                val buffer = ByteArray(COPY_BUFFER_SIZE)
                 val entries = zf.entries()
                 while (entries.hasMoreElements()) {
+                    progress?.check()
                     val entry = entries.nextElement()
                     val out = File(target, entry.name)
                     val outPath = out.canonicalPath
@@ -370,15 +529,18 @@ object FileRepository {
                     zf.getInputStream(entry).use { input ->
                         BufferedOutputStream(FileOutputStream(out)).use { output ->
                             while (true) {
+                                progress?.check()
                                 val n = input.read(buffer)
                                 if (n < 0) break
                                 budget -= n
                                 if (budget < 0) throw FileOpException("No hay espacio suficiente para extraer")
                                 output.write(buffer, 0, n)
+                                progress?.addBytes(n.toLong())
                             }
                         }
                     }
                     if (entry.time > 0) out.setLastModified(entry.time)
+                    progress?.touch(out.path)
                 }
             }
         } catch (e: FileOpException) {
@@ -386,14 +548,18 @@ object FileRepository {
             throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException("No se pudo extraer el ZIP (¿está dañado?)")
+            throw FileOpException(describeIo(e, "No se pudo extraer el ZIP (¿está dañado?)"))
         }
         return target
     }
 
     // ---------- Utilidades ----------
 
-    /** Recorre hasta [maxDepth] niveles sin seguir enlaces simbólicos. [visit] devuelve false para parar. */
+    /**
+     * Recorre hasta [maxDepth] niveles sin seguir enlaces simbólicos. [visit] devuelve false para parar.
+     * Para saber si cada entrada es una carpeta (y no un enlace) hace una sola consulta al sistema
+     * en vez de dos, que en búsquedas por miles de carpetas es lo que más tiempo consume.
+     */
     private fun walk(
         root: File,
         maxDepth: Int,
@@ -411,11 +577,17 @@ object FileRepository {
                 if (!isActive()) return
                 if (skipHidden && child.name.startsWith(".")) continue
                 if (!visit(child)) return
-                if (depth + 1 < maxDepth && child.isDirectory && !Files.isSymbolicLink(child.toPath())) {
-                    stack.push(child to depth + 1)
-                }
+                if (depth + 1 < maxDepth && isRealDirectory(child)) stack.push(child to depth + 1)
             }
         }
+    }
+
+    /** ¿Es una carpeta de verdad (no un enlace simbólico)? Una sola llamada al sistema (lstat). */
+    private fun isRealDirectory(f: File): Boolean = try {
+        val attrs = Files.readAttributes(f.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+        attrs.isDirectory && !attrs.isSymbolicLink
+    } catch (e: IOException) {
+        false
     }
 
     private fun existsNoFollow(f: File) = Files.exists(f.toPath(), LinkOption.NOFOLLOW_LINKS)

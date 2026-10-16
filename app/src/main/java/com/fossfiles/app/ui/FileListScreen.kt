@@ -1,13 +1,17 @@
 package com.fossfiles.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,13 +47,43 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val details by viewModel.details
     val favorites by viewModel.favorites
     val filter by viewModel.filter
-    val busy = viewModel.isLoading.value || viewModel.isWorking.value
+    val loadedDir by viewModel.loadedDir
+    val trashDays by viewModel.trashDays
+    val loading = viewModel.isLoading.value
+    // Mientras la lista aún es la de la carpeta anterior no se aceptan toques (podrían abrir algo equivocado).
+    val upToDate = loadedDir == currentDir
 
-    var showNewFolderDialog by remember { mutableStateOf(false) }
-    var showOptions by remember { mutableStateOf(false) }
-    var dialog by remember { mutableStateOf<SelectionDialog?>(null) }
+    // Sobreviven a girar la pantalla.
+    var showNewFolderDialog by rememberSaveable { mutableStateOf(false) }
+    var showOptions by rememberSaveable { mutableStateOf(false) }
+    var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
-    val selected = items.filter { it.file.absolutePath in selection }
+    val selected = items.filter { it.path in selection }
+
+    // Al volver a una carpeta se recupera por dónde iba la lista; al entrar en una nueva, empieza arriba.
+    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
+    val gridNow by rememberUpdatedState(grid)
+    DisposableEffect(loadedDir) {
+        val dir = loadedDir
+        onDispose {
+            if (dir != null) {
+                if (gridNow) {
+                    viewModel.rememberScroll(dir, gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)
+                } else {
+                    viewModel.rememberScroll(dir, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+                }
+            }
+        }
+    }
+    LaunchedEffect(loadedDir) {
+        val dir = loadedDir ?: return@LaunchedEffect
+        val saved = viewModel.scrollFor(dir)
+        val index = saved?.get(0) ?: 0
+        val offset = saved?.get(1) ?: 0
+        listState.scrollToItem(index, offset)
+        gridState.scrollToItem(index, offset)
+    }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -72,9 +106,6 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                                 IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás") { if (!viewModel.goUp()) onBack() }
                             },
                             actions = {
-                                if (clipboard.isNotEmpty()) {
-                                    IconAction(Icons.Default.ContentPaste, "Pegar ${clipboard.size}") { viewModel.pasteHere() }
-                                }
                                 IconAction(Icons.AutoMirrored.Filled.Sort, "Opciones de vista") { showOptions = !showOptions }
                                 IconAction(Icons.Default.CreateNewFolder, "Nueva carpeta") { showNewFolderDialog = true }
                             }
@@ -95,8 +126,16 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             }
         ) { padding ->
             Column(Modifier.padding(padding)) {
-                StatusLine(busy)
-                if (!busy && items.isEmpty()) {
+                if (clipboard.isNotEmpty()) {
+                    ClipboardStrip(
+                        count = clipboard.size,
+                        isCut = viewModel.clipboardIsCut.value,
+                        onPaste = { viewModel.pasteHere() },
+                        onCancel = { viewModel.clearClipboard() }
+                    )
+                }
+                StatusLine(viewModel.loadingVisible.value)
+                if (!loading && upToDate && items.isEmpty()) {
                     EmptyMessage(if (searchQuery.isNotBlank() || filter.isActive) "Sin resultados" else "Carpeta vacía")
                 }
                 FileCollection(
@@ -106,7 +145,10 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     grid = grid,
                     onOpen = { item -> openItem(viewModel, context, item, items) },
                     onToggle = { viewModel.toggleSelection(it) },
-                    onLongPress = { viewModel.longPress(it) }
+                    onLongPress = { viewModel.longPress(it) },
+                    interactive = upToDate,
+                    listState = listState,
+                    gridState = gridState
                 )
             }
         }
@@ -122,7 +164,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 onDismiss = { showNewFolderDialog = false }
             )
         }
-        SelectionDialogs(viewModel, selected, dialog) { dialog = null }
+        SelectionDialogs(viewModel, selected, trashDays, dialog) { dialog = null }
         details?.let { DetailsDialog(it) { viewModel.closeDetails() } }
     }
 }
@@ -141,10 +183,11 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val grid by viewModel.gridView
     val details by viewModel.details
     val favorites by viewModel.favorites
-    val busy = viewModel.isLoading.value || viewModel.isWorking.value
-    var dialog by remember { mutableStateOf<SelectionDialog?>(null) }
+    val trashDays by viewModel.trashDays
+    val loading = viewModel.isLoading.value
+    var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
-    val selected = items.filter { it.file.absolutePath in selection }
+    val selected = items.filter { it.path in selection }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
@@ -174,8 +217,8 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             }
         ) { padding ->
             Column(Modifier.padding(padding)) {
-                StatusLine(busy)
-                if (!busy && items.isEmpty()) EmptyMessage("No se encontró nada en esta categoría")
+                StatusLine(viewModel.loadingVisible.value)
+                if (!loading && items.isEmpty()) EmptyMessage("No se encontró nada en esta categoría")
                 FileCollection(
                     items = items,
                     selection = selection,
@@ -187,7 +230,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 )
             }
         }
-        SelectionDialogs(viewModel, selected, dialog) { dialog = null }
+        SelectionDialogs(viewModel, selected, trashDays, dialog) { dialog = null }
         details?.let { DetailsDialog(it) { viewModel.closeDetails() } }
     }
 }
@@ -196,6 +239,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
 private fun SelectionDialogs(
     viewModel: FileViewModel,
     selected: List<FileItem>,
+    trashDays: Int,
     dialog: SelectionDialog?,
     onClose: () -> Unit
 ) {
@@ -208,12 +252,14 @@ private fun SelectionDialogs(
                     viewModel.rename(target.file, it)
                     onClose()
                 },
-                onDismiss = onClose
+                onDismiss = onClose,
+                selectBaseName = !target.isDirectory
             )
         }
         SelectionDialog.DELETE -> if (selected.isNotEmpty()) {
             DeleteChoiceDialog(
                 names = selected.map { it.name },
+                trashDays = trashDays,
                 onTrash = {
                     viewModel.deleteSelected(permanent = false)
                     onClose()
@@ -251,7 +297,7 @@ private fun SelectionTopBar(
     val extra = buildList<Pair<String, () -> Unit>> {
         add("Seleccionar todo" to { viewModel.selectAll() })
         add("Invertir selección" to { viewModel.invertSelection() })
-        val allFavorite = selected.isNotEmpty() && selected.all { it.file.absolutePath in favorites }
+        val allFavorite = selected.isNotEmpty() && selected.all { it.path in favorites }
         add((if (allFavorite) "Quitar de favoritos" else "Añadir a favoritos") to { viewModel.toggleFavoriteForSelection() })
         if (selected.size == 1) add("Renombrar" to onRename)
         add("Compartir" to {
@@ -294,6 +340,7 @@ private fun OptionsRow(viewModel: FileViewModel) {
     val sort by viewModel.sortMode
     val grid by viewModel.gridView
     val hidden by viewModel.showHidden
+    val reverse by viewModel.sortReverse
     val sorts = listOf(
         SortMode.NAME to "Nombre",
         SortMode.DATE to "Fecha",
@@ -308,6 +355,7 @@ private fun OptionsRow(viewModel: FileViewModel) {
         sorts.forEach { (mode, label) ->
             OptionText(label, active = mode == sort) { viewModel.setSort(mode) }
         }
+        OptionText(if (reverse) "Orden: inverso" else "Orden: normal", active = reverse) { viewModel.toggleSortReverse() }
         Spacer(Modifier.width(12.dp))
         OptionText(if (grid) "Vista: cuadrícula" else "Vista: lista", active = false) { viewModel.toggleGrid() }
         OptionText(if (hidden) "Ocultos: sí" else "Ocultos: no", active = hidden) { viewModel.toggleHidden() }
@@ -373,12 +421,12 @@ private fun DetailRow(label: String, value: String) {
     }
 }
 
-// Texto fijo en vez de una barra de progreso indeterminada: esa barra se anima sin parar.
+/** Avisa de que la carpeta tarda en cargar. Texto fijo: una barra indeterminada se anima sin parar. */
 @Composable
-internal fun StatusLine(busy: Boolean) {
-    if (busy) {
+internal fun StatusLine(show: Boolean) {
+    if (show) {
         Text(
-            "Trabajando…",
+            "Cargando…",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
         )
@@ -389,5 +437,26 @@ internal fun StatusLine(busy: Boolean) {
 internal fun EmptyMessage(text: String) {
     Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(text, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** Lo que hay en el portapapeles (copiar / cortar) y cómo usarlo: pegar en la carpeta actual o descartar. */
+@Composable
+private fun ClipboardStrip(count: Int, isCut: Boolean, onPaste: () -> Unit, onCancel: () -> Unit) {
+    val what = if (count == 1) "1 elemento" else "$count elementos"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (isCut) "$what para mover" else "$what para copiar",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        PlainTextButton("Pegar aquí", onPaste)
+        PlainTextButton("Cancelar", onCancel)
     }
 }

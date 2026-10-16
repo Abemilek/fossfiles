@@ -30,12 +30,12 @@ class TrashBin(private val dir: File) {
     )
 
     /** Mueve [item] a la papelera con un renombrado (instantáneo). Los enlaces simbólicos se borran. */
-    fun moveToTrash(item: File, now: Long = System.currentTimeMillis()) {
+    fun moveToTrash(item: File, now: Long = System.currentTimeMillis(), progress: OpProgress? = null) {
         if (!Files.exists(item.toPath(), LinkOption.NOFOLLOW_LINKS)) throw FileOpException("«${item.name}» ya no existe")
         if (isInside(item)) throw FileOpException("«${item.name}» ya está en la papelera")
         // Un enlace simbólico no tiene contenido que rescatar: se elimina directamente.
         if (Files.isSymbolicLink(item.toPath())) {
-            FileRepository.delete(item)
+            FileRepository.delete(item, progress)
             return
         }
         if (!dir.isDirectory && !dir.mkdirs()) throw FileOpException("No se pudo crear la papelera")
@@ -45,7 +45,7 @@ class TrashBin(private val dir: File) {
         val holder = File(dir, id)
         if (!holder.mkdir()) throw FileOpException("No se pudo usar la papelera")
         try {
-            FileRepository.move(item, holder)
+            FileRepository.move(item, holder, progress)
         } catch (e: FileOpException) {
             holder.delete() // solo borra si quedó vacía
             throw e
@@ -85,14 +85,14 @@ class TrashBin(private val dir: File) {
      * Devuelve el elemento a su carpeta original (la recrea si ya no existe). Si no se puede,
      * lo deja en [fallbackDir]. Si ya hay algo con ese nombre, usa «nombre (1)».
      */
-    fun restore(entry: Entry, fallbackDir: File): File {
+    fun restore(entry: Entry, fallbackDir: File, progress: OpProgress? = null): File {
         val originalParent = entry.originalPath?.let { File(it).parentFile }
         val dest = if (originalParent != null && (originalParent.isDirectory || originalParent.mkdirs())) {
             originalParent
         } else {
             fallbackDir
         }
-        val restored = FileRepository.move(entry.file, dest)
+        val restored = FileRepository.move(entry.file, dest, progress)
         File(dir, entry.id).delete() // ya vacía
         File(dir, entry.id + ".info").delete()
         return restored
@@ -127,6 +127,11 @@ class TrashBin(private val dir: File) {
             }
         }
         return count
+    }
+
+    companion object {
+        /** La papelera a la que pertenece [entry] (su carpeta es `<papelera>/<id>/<nombre>`); sirve con varios volúmenes. */
+        fun of(entry: Entry): TrashBin? = entry.file.parentFile?.parentFile?.let { TrashBin(it) }
     }
 
     // ---------- Internos ----------

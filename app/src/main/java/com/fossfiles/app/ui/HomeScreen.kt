@@ -11,6 +11,9 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,27 +22,46 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.fossfiles.app.Category
 import com.fossfiles.app.FileViewModel
-import com.fossfiles.app.StorageInfo
+import com.fossfiles.app.VolumeUsage
 import com.fossfiles.app.formatSize
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: FileViewModel) {
     val context = LocalContext.current
-    val storage by viewModel.storageInfo
+    val volumes by viewModel.volumes
     val quickLinks by viewModel.quickLinks
     val recent by viewModel.recent
     val favorites by viewModel.favorites
     val dateFmt = rememberDateFormat()
+    var query by rememberSaveable { mutableStateOf("") }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("FossFiles") })
+            TopAppBar(
+                title = { Text("FossFiles") },
+                actions = { IconAction(Icons.Default.Settings, "Ajustes") { viewModel.openSettings() } }
+            )
         }
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             item {
-                Box(Modifier.padding(16.dp)) { StorageCard(storage) }
+                PlainTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "Buscar en todo el almacenamiento...",
+                    leadingIcon = Icons.Default.Search,
+                    onClear = { query = "" },
+                    onDone = { viewModel.searchFromHome(query) },
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)
+                )
+            }
+
+            // Un cuadro por volumen (almacenamiento interno y, si hay, tarjeta SD); tocarlo lo abre.
+            items(volumes, key = { it.volume.root.path }) { volume ->
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    StorageCard(volume) { viewModel.openVolume(volume.volume) }
+                }
             }
 
             if (quickLinks.isNotEmpty()) {
@@ -58,7 +80,7 @@ fun HomeScreen(viewModel: FileViewModel) {
 
             item { SectionTitle("Categorías") }
             // Dos por fila, dibujadas a mano (una cuadrícula perezosa no puede ir dentro de otra lista).
-            items(categoryTiles.chunked(2)) { pair ->
+            items(categoryRows) { pair ->
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -71,8 +93,8 @@ fun HomeScreen(viewModel: FileViewModel) {
             }
             item {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    CategoryTile("Almacenamiento interno", Icons.Default.Folder, Modifier.fillMaxWidth()) {
-                        viewModel.openInternalStorage()
+                    CategoryTile("Archivos grandes", Icons.Default.Storage, Modifier.fillMaxWidth()) {
+                        viewModel.openLargeFiles()
                     }
                 }
             }
@@ -86,14 +108,14 @@ fun HomeScreen(viewModel: FileViewModel) {
 
             if (recent.isNotEmpty()) {
                 item { SectionTitle("Recientes") }
-                items(recent, key = { it.file.absolutePath }) { item ->
+                items(recent, key = { it.path }) { item ->
                     FileRow(
                         item = item,
                         selected = false,
                         dateFmt = dateFmt,
                         onClick = { openItem(viewModel, context, item, recent) },
                         onLongClick = {},
-                        favorite = item.file.absolutePath in favorites
+                        favorite = item.path in favorites
                     )
                 }
             }
@@ -112,6 +134,9 @@ private val categoryTiles = listOf(
     CategoryTileInfo(Category.DOCUMENTS, "Documentos", Icons.Default.Description),
     CategoryTileInfo(Category.FAVORITES, "Favoritos", Icons.Default.Star)
 )
+
+// Se agrupan una sola vez (no en cada recomposición del Home).
+private val categoryRows = categoryTiles.chunked(2)
 
 @Composable
 private fun SectionTitle(text: String) {
@@ -139,15 +164,17 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun StorageCard(storage: StorageInfo) {
+private fun StorageCard(item: VolumeUsage, onClick: () -> Unit) {
+    val storage = item.usage
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .plainClickable(onClick = onClick)
             .padding(16.dp)
     ) {
-        Text("Almacenamiento", style = MaterialTheme.typography.titleMedium)
+        Text(item.volume.label, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         // Barra dibujada a mano: LinearProgressIndicator anima su avance.
         Box(
