@@ -45,11 +45,28 @@ else
   RUN_ARGS+=(--user "$(id -u):$(id -g)")
 fi
 
-# 3) Point Gradle at the SDK inside the container without touching your own
-#    local.properties: a temp file is mounted read-only over it.
+# 3) Point Gradle at the SDK inside the container: a temp file is mounted
+#    read-only over local.properties (Gradle reads sdk.dir from there and your
+#    own local.properties points at a host path that does not exist here).
+#    The host copy is saved first and restored on exit: with rootless Podman the
+#    bind-mount target gets replaced by an empty file owned by the container's
+#    user, which would leave your local.properties empty and break local builds.
 mkdir -p "$CACHE_DIR"
 TMP_PROPS="$(mktemp)"
-trap 'rm -f "$TMP_PROPS"' EXIT
+LOCAL_PROPS_BAK=""
+if [ -e local.properties ]; then
+  LOCAL_PROPS_BAK="$(mktemp)"
+  cp -p local.properties "$LOCAL_PROPS_BAK"
+fi
+restore_local_props() {
+  rm -f "$TMP_PROPS"
+  rm -f local.properties
+  if [ -n "$LOCAL_PROPS_BAK" ]; then
+    cp -p "$LOCAL_PROPS_BAK" local.properties
+    rm -f "$LOCAL_PROPS_BAK"
+  fi
+}
+trap restore_local_props EXIT
 printf 'sdk.dir=%s\n' "$SDK_IN_CONTAINER" > "$TMP_PROPS"
 
 # 4) Run the build. The Gradle cache persists in .container/gradle between runs.
