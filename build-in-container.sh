@@ -58,15 +58,25 @@ if [ -e local.properties ]; then
   LOCAL_PROPS_BAK="$(mktemp)"
   cp -p local.properties "$LOCAL_PROPS_BAK"
 fi
-restore_local_props() {
+KEYSTORE_PROPS_BAK=""
+if [ -e keystore.properties ]; then
+  KEYSTORE_PROPS_BAK="$(mktemp)"
+  cp -p keystore.properties "$KEYSTORE_PROPS_BAK"
+fi
+restore_build_props() {
   rm -f "$TMP_PROPS"
   rm -f local.properties
   if [ -n "$LOCAL_PROPS_BAK" ]; then
     cp -p "$LOCAL_PROPS_BAK" local.properties
     rm -f "$LOCAL_PROPS_BAK"
   fi
+  rm -f keystore.properties
+  if [ -n "$KEYSTORE_PROPS_BAK" ]; then
+    cp -p "$KEYSTORE_PROPS_BAK" keystore.properties
+    rm -f "$KEYSTORE_PROPS_BAK"
+  fi
 }
-trap restore_local_props EXIT
+trap restore_build_props EXIT
 printf 'sdk.dir=%s\n' "$SDK_IN_CONTAINER" > "$TMP_PROPS"
 
 # 4) Run the build. The Gradle cache persists in .container/gradle between runs.
