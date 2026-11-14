@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+Performance pass. No functional changes; versionCode/versionName untouched.
+- Faster sorting of large folders (~50-60 % less time at 50 000 files), faster category scans and
+  pre-copy size measurement (~20-45 % less), lower memory per listed file.
+- Thumbnails already in cache show on the first frame; in-flight thumbnail decodes are cancelled when a row
+  scrolls away; the image viewer decodes one full-size image at a time.
+- Fix: sorting could throw "Comparison method violates its general contract" with names mixing non-ASCII
+  digits (e.g. Arabic-Indic) with ASCII digits and letters.
+
 ## 3.0.0
 A "ready for everyday use" release: fewer rough edges, faster listings and a more complete
 file manager. Still no Internet permission, no telemetry and no animations.

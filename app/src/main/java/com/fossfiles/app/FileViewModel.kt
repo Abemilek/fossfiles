@@ -8,6 +8,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,6 +69,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     // vieja nunca puede pisar los resultados de una nueva.
     private var loadJob: Job? = null
     private var detailsJob: Job? = null
+    private var homeJob: Job? = null
     private var currentProgress: OpProgress? = null
     private var anchorPath: String? = null // último elemento marcado: punto de partida de la selección por rango
 
@@ -149,7 +151,10 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     /** Actualiza lo que muestra el Home: volúmenes, accesos rápidos y recientes. */
     fun refreshHome() {
-        viewModelScope.launch {
+        // Si ya hay una actualización en marcha (volver a la app varias veces seguidas), se descarta:
+        // antes se apilaban varias, cada una leyendo volúmenes, papelera y MediaStore a la vez.
+        homeJob?.cancel()
+        homeJob = viewModelScope.launch {
             val snapshot = withContext(Dispatchers.IO) {
                 val found = StorageVolumes.list(appContext)
                 volumeRoots = found.map { it.root }
@@ -165,6 +170,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                     "Películas" to "Movies"
                 )
                 val links = known.map { QuickLink(it.first, File(root, it.second)) }.filter { it.dir.isDirectory }
+                ensureActive() // si ya no hace falta este resultado, se evita la parte más lenta
                 purgeTrash()
                 Triple(usage, links, MediaStoreScanner.recent(appContext))
             }

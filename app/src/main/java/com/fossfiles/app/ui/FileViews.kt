@@ -70,11 +70,12 @@ internal fun FileThumbnail(
 ) {
     val kind = item.kind()
     val px = with(LocalDensity.current) { requestSize.roundToPx() }
-    val bitmap by produceState<ImageBitmap?>(null, item.path, item.lastModified, px) {
-        value = if (kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.AUDIO) {
-            ThumbnailLoader.load(item, px)?.asImageBitmap()
-        } else {
-            null
+    // Si la miniatura ya está en caché se muestra en el primer fotograma (sin pasar por el icono),
+    // y solo se lanza una carga si no estaba. La consulta se recuerda: no se repite en cada recomposición.
+    val cached = remember(item.path, item.lastModified, px) { ThumbnailLoader.peek(item, px)?.asImageBitmap() }
+    val bitmap by produceState<ImageBitmap?>(cached, item.path, item.lastModified, px) {
+        if (value == null && (kind == FileKind.IMAGE || kind == FileKind.VIDEO || kind == FileKind.AUDIO)) {
+            value = ThumbnailLoader.load(item, px)?.asImageBitmap()
         }
     }
     val ready = bitmap

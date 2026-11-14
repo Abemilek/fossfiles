@@ -65,28 +65,105 @@ object FileRepository {
             "No se puede leer esta carpeta"
         }
 
+    private class Keyed(
+        @JvmField val item: FileItem,
+        @JvmField val key: String,      // minúsculas y sin acentos, con los números codificados (ver naturalKey)
+        @JvmField val ext: String
+    )
+
     /**
      * Ordena con "orden natural" (foto2 antes que foto10, sin distinguir mayúsculas ni acentos) y con
      * las carpetas siempre primero. [reverse] invierte el orden dentro de carpetas y archivos.
-     * Las claves de orden se calculan una sola vez por elemento, no en cada comparación.
+     *
+     * Rendimiento: las claves se calculan una sola vez por elemento; carpetas y archivos se separan
+     * antes de ordenar (así ninguna comparación gasta tiempo en "¿es carpeta?"), y el nombre se compara
+     * con una clave natural precodificada mediante String.compareTo (intrínseco, mucho más rápido que
+     * recorrer carácter a carácter en cada comparación). Con nombres ASCII el resultado es idéntico al del
+     * algoritmo anterior (lo comprueba una prueba diferencial); es una ordenación estable, como antes.
+     *
+     * Diferencia deliberada: el comparador anterior ([naturalCompare]) no era transitivo cuando se mezclaban
+     * dígitos no ASCII (p. ej. árabe-índicos), dígitos ASCII y letras (٩ < 10 < b < ٩), y en ese caso la
+     * ordenación podía lanzar "Comparison method violates its general contract". Ahora todos los dígitos
+     * decimales Unicode cuentan por su valor numérico, lo que da siempre un orden total.
      */
     fun sortItems(items: List<FileItem>, sortMode: SortMode, reverse: Boolean = false): List<FileItem> {
-        class Keyed(val item: FileItem, val key: String, val ext: String)
-
-        val keyed = items.map {
-            Keyed(it, sortKey(it.name), if (sortMode == SortMode.TYPE) it.file.extension.lowercase() else "")
+        val needExt = sortMode == SortMode.TYPE
+        val keyed = ArrayList<Keyed>(items.size)
+        for (item in items) {
+            keyed.add(Keyed(item, naturalKey(sortKey(item.name)), if (needExt) item.file.extension.lowercase() else ""))
         }
-        val byName = Comparator<Keyed> { a, b -> naturalCompare(a.key, b.key) }
+
+        val byName = Comparator<Keyed> { a, b -> a.key.compareTo(b.key) }
         var comparator: Comparator<Keyed> = when (sortMode) {
             SortMode.NAME -> byName
-            SortMode.DATE -> Comparator<Keyed> { a, b -> b.item.lastModified.compareTo(a.item.lastModified) }.then(byName)
-            SortMode.SIZE -> Comparator<Keyed> { a, b -> b.item.sizeBytes.compareTo(a.item.sizeBytes) }.then(byName)
-            SortMode.TYPE -> Comparator<Keyed> { a, b -> a.ext.compareTo(b.ext) }.then(byName)
+            SortMode.DATE -> Comparator { a, b ->
+                val c = b.item.lastModified.compareTo(a.item.lastModified)
+                if (c != 0) c else byName.compare(a, b)
+            }
+            SortMode.SIZE -> Comparator { a, b ->
+                val c = b.item.sizeBytes.compareTo(a.item.sizeBytes)
+                if (c != 0) c else byName.compare(a, b)
+            }
+            SortMode.TYPE -> Comparator { a, b ->
+                val c = a.ext.compareTo(b.ext)
+                if (c != 0) c else byName.compare(a, b)
+            }
         }
         if (reverse) comparator = comparator.reversed()
-        val foldersFirst = Comparator<Keyed> { a, b -> b.item.isDirectory.compareTo(a.item.isDirectory) }
-        return keyed.sortedWith(foldersFirst.then(comparator)).map { it.item }
+
+        // Partición estable: carpetas primero. Equivale a ordenar por (esCarpeta desc, comparador).
+        val folders = ArrayList<Keyed>()
+        val files = ArrayList<Keyed>(keyed.size)
+        for (k in keyed) if (k.item.isDirectory) folders.add(k) else files.add(k)
+        java.util.Collections.sort(folders, comparator)
+        java.util.Collections.sort(files, comparator)
+
+        val result = ArrayList<FileItem>(keyed.size)
+        for (k in folders) result.add(k.item)
+        for (k in files) result.add(k.item)
+        return result
     }
+
+    /**
+     * Codifica una clave (ya en minúsculas y sin acentos) para que comparar con String.compareTo dé el
+     * orden natural: cada bloque de dígitos pasa a "0" + (cantidad de cifras significativas) + cifras
+     * (como dígitos ASCII, sin ceros a la izquierda). Cualquier dígito decimal Unicode se trata como el
+     * dígito ASCII de su mismo valor, así el orden es siempre total (ver [sortItems]).
+     * Con nombres sin dígitos devuelve la misma cadena, sin crear nada.
+     */
+    internal fun naturalKey(key: String): String {
+        var hasDigit = false
+        for (c in key) {
+            if (c in '0'..'9' || (c.code >= 128 && c.isDigit())) {
+                hasDigit = true
+                break
+            }
+        }
+        if (!hasDigit) return key
+        val out = StringBuilder(key.length + 8)
+        val n = key.length
+        var i = 0
+        while (i < n) {
+            if (isDecimalDigit(key[i])) {
+                var end = i
+                while (end < n && isDecimalDigit(key[end])) end++
+                var start = i
+                while (start < end - 1 && digitValue(key[start]) == 0) start++
+                // '0' ordena frente a los no-dígitos igual que cualquier dígito ASCII.
+                out.append('0').append((end - start).toChar())
+                for (k in start until end) out.append('0' + digitValue(key[k]))
+                i = end
+            } else {
+                out.append(key[i])
+                i++
+            }
+        }
+        return out.toString()
+    }
+
+    private fun isDecimalDigit(c: Char): Boolean = c in '0'..'9' || (c.code >= 128 && c.isDigit())
+
+    private fun digitValue(c: Char): Int = if (c in '0'..'9') c - '0' else Character.digit(c, 10)
 
     /** Minúsculas y sin acentos ("Árbol" ordena junto a "arbol"). Solo normaliza si hace falta. */
     internal fun sortKey(name: String): String {
@@ -374,8 +451,10 @@ object FileRepository {
         for (dir in dirs) {
             if (!dir.isDirectory) continue
             walk(dir, maxDepth, isActive, skipHidden = !showHidden) { f ->
-                if (f.isFile && (extensions == null || f.extension.lowercase() in extensions)) {
-                    results.add(FileItem.of(f))
+                // Primero la comprobación barata (extensión) y solo después el acceso al sistema; y UNA
+                // sola llamada (stat) en vez de dos (isFile + FileItem.of) por cada coincidencia.
+                if (extensions == null || f.extension.lowercase() in extensions) {
+                    FileItem.regularFileOrNull(f)?.let { results.add(it) }
                 }
                 true
             }
@@ -385,7 +464,12 @@ object FileRepository {
 
     // ---------- Tamaño de carpetas ----------
 
-    /** Cuenta archivos, carpetas y bytes de [root] (recursivo, sin seguir enlaces). Para archivos sueltos: 1 archivo. */
+    /**
+     * Cuenta archivos, carpetas y bytes de [root] (recursivo, sin seguir enlaces). Para archivos sueltos: 1 archivo.
+     * Usa walkFileTree: el sistema entrega los atributos de cada entrada ya leídos, así que hay UNA consulta
+     * (lstat) por entrada en vez de dos. Se usa antes de copiar/comprimir (para el porcentaje de progreso) y
+     * en Detalles, de modo que la operación empieza antes. Cancelable: devuelve lo contado hasta ese momento.
+     */
     fun measure(root: File, isActive: () -> Boolean = { true }): TreeStats {
         if (!root.isDirectory || Files.isSymbolicLink(root.toPath())) {
             return TreeStats(files = 1, folders = 0, bytes = root.length())
@@ -393,19 +477,38 @@ object FileRepository {
         var files = 0
         var folders = 0
         var bytes = 0L
-        walk(root, Int.MAX_VALUE, isActive) { f ->
-            val attrs = try {
-                Files.readAttributes(f.toPath(), BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-            } catch (e: IOException) {
-                return@walk true
-            }
-            if (attrs.isDirectory) {
-                folders++
-            } else {
-                files++
-                if (attrs.isRegularFile) bytes += attrs.size()
-            }
-            true
+        val rootPath = root.toPath()
+        var atRoot = true
+        try {
+            Files.walkFileTree(rootPath, object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (!isActive()) return FileVisitResult.TERMINATE
+                    if (atRoot) atRoot = false else folders++
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (!isActive()) return FileVisitResult.TERMINATE
+                    files++
+                    if (attrs.isRegularFile) bytes += attrs.size()
+                    return FileVisitResult.CONTINUE
+                }
+
+                // Carpeta que no se puede abrir: cuenta como carpeta (como antes) pero no se entra en ella.
+                override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult {
+                    if (file != rootPath) {
+                        val isDir = try {
+                            Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS).isDirectory
+                        } catch (e: IOException) {
+                            false
+                        }
+                        if (isDir) folders++
+                    }
+                    return if (isActive()) FileVisitResult.CONTINUE else FileVisitResult.TERMINATE
+                }
+            })
+        } catch (e: IOException) {
+            // se devuelve lo contado hasta aquí
         }
         return TreeStats(files, folders, bytes)
     }

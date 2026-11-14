@@ -7,10 +7,15 @@ import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.media.ThumbnailUtils
 import android.os.Build
+import android.os.CancellationSignal
 import android.util.LruCache
 import android.util.Size
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -32,6 +37,37 @@ object ThumbnailLoader {
 
     private val gate = Semaphore(3)
 
+    // El visor decodifica imágenes de hasta 2048 px (decenas de MB cada una): de una en una, para que
+    // pasar rápido de foto en foto no apile decodificaciones simultáneas y dispare la memoria.
+    private val fullGate = Semaphore(1)
+
+    private fun cacheKey(item: FileItem, sizePx: Int): String = "${item.path}|${item.lastModified}|$sizePx"
+
+    /** Miniatura que ya está en caché (sin esperar ni trabajar) o null. Segura desde el hilo principal. */
+    fun peek(item: FileItem, sizePx: Int): Bitmap? = cache.get(cacheKey(item, sizePx))
+
+    /**
+     * Ejecuta [block] con una señal de cancelación que se activa en cuanto la corrutina se cancela
+     * (la fila salió de pantalla): así el sistema aborta una decodificación ya iniciada en vez de
+     * terminarla para nada y retener uno de los 3 turnos.
+     */
+    private inline fun <T> CoroutineScope.withCancellationSignal(block: (CancellationSignal) -> T): T {
+        val signal = CancellationSignal()
+        // UNDISPATCHED: queda vigilando ya, antes de empezar el trabajo bloqueante.
+        val watcher = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitCancellation()
+            } finally {
+                signal.cancel()
+            }
+        }
+        try {
+            return block(signal)
+        } finally {
+            watcher.cancel()
+        }
+    }
+
     /** Libera la caché de miniaturas (al faltar memoria, al pasar a segundo plano o desde Ajustes). */
     fun clear() {
         cache.evictAll()
@@ -39,19 +75,21 @@ object ThumbnailLoader {
 
     /** Devuelve la miniatura o null si no se puede (formato raro, sin portada, archivo dañado). */
     suspend fun load(item: FileItem, sizePx: Int): Bitmap? {
-        val key = "${item.file.absolutePath}|${item.lastModified}|$sizePx"
+        val key = cacheKey(item, sizePx)
         val cached = cache.get(key)
         if (cached != null) return cached
         return gate.withPermit {
             withContext(Dispatchers.IO) {
                 // Si el usuario ya se fue de esta fila mientras esperaba turno, no se gasta trabajo.
                 if (!isActive) return@withContext null
-                val bitmap = try {
-                    create(item.file, item.kind(), sizePx)
-                } catch (e: Exception) {
-                    null
-                } catch (e: OutOfMemoryError) {
-                    null
+                val bitmap = withCancellationSignal { signal ->
+                    try {
+                        create(item.file, item.kind(), sizePx, signal)
+                    } catch (e: Exception) {
+                        null // incluye la cancelación del sistema (OperationCanceledException)
+                    } catch (e: OutOfMemoryError) {
+                        null
+                    }
                 }
                 if (bitmap != null) cache.put(key, bitmap)
                 bitmap
@@ -60,22 +98,26 @@ object ThumbnailLoader {
     }
 
     /** Imagen reducida a como mucho [maxPx] por lado y con la orientación EXIF aplicada (para el visor). */
-    suspend fun loadFull(file: File, maxPx: Int): Bitmap? = withContext(Dispatchers.IO) {
-        try {
-            decodeFull(file, maxPx)
-        } catch (e: Exception) {
-            null
-        } catch (e: OutOfMemoryError) {
-            null
+    suspend fun loadFull(file: File, maxPx: Int): Bitmap? = fullGate.withPermit {
+        withContext(Dispatchers.IO) {
+            // Si el usuario ya pasó a otra imagen mientras esperaba turno, no se gasta trabajo.
+            if (!isActive) return@withContext null
+            try {
+                decodeFull(file, maxPx)
+            } catch (e: Exception) {
+                null
+            } catch (e: OutOfMemoryError) {
+                null
+            }
         }
     }
 
-    private fun create(file: File, kind: FileKind, px: Int): Bitmap? = when (kind) {
+    private fun create(file: File, kind: FileKind, px: Int, signal: CancellationSignal): Bitmap? = when (kind) {
         FileKind.IMAGE ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ThumbnailUtils.createImageThumbnail(file, Size(px, px), null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ThumbnailUtils.createImageThumbnail(file, Size(px, px), signal)
             else decodeSampled(file, px)
         FileKind.VIDEO ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ThumbnailUtils.createVideoThumbnail(file, Size(px, px), null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ThumbnailUtils.createVideoThumbnail(file, Size(px, px), signal)
             else videoFrame(file, px)
         FileKind.AUDIO -> audioArt(file, px)
         else -> null
@@ -170,7 +212,9 @@ object ThumbnailLoader {
             else -> return bitmap
         }
         return try {
-            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (rotated !== bitmap) bitmap.recycle() // el original (hasta ~16 MB) ya no se usa: se libera ya, no al azar del GC
+            rotated
         } catch (e: OutOfMemoryError) {
             bitmap
         }

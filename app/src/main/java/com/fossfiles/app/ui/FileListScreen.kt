@@ -58,7 +58,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     var showOptions by rememberSaveable { mutableStateOf(false) }
     var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
-    val selected = items.filter { it.path in selection }
+    val selected = remember(items, selection) { if (selection.isEmpty()) emptyList<FileItem>() else items.filter { it.path in selection } }
 
     // Al volver a una carpeta se recupera por dónde iba la lista; al entrar en una nueva, empieza arriba.
     val listState = rememberLazyListState()
@@ -187,7 +187,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
     val loading = viewModel.isLoading.value
     var dialog by rememberSaveable { mutableStateOf<SelectionDialog?>(null) }
 
-    val selected = items.filter { it.path in selection }
+    val selected = remember(items, selection) { if (selection.isEmpty()) emptyList<FileItem>() else items.filter { it.path in selection } }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(

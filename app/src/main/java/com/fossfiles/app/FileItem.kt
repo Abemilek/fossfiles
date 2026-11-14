@@ -18,8 +18,14 @@ data class FileItem(
      */
     val path: String = file.absolutePath
 
-    /** El tipo se calcula la primera vez que se pide y se reutiliza (no entra en equals/copy). */
-    val cachedKind: FileKind by lazy(LazyThreadSafetyMode.NONE) { computeKind() }
+    // Caché del tipo en un campo simple (no entra en equals/copy). Antes era `by lazy`, que reserva
+    // un objeto Lazy + una lambda por cada archivo (decenas de miles en carpetas grandes). Si dos
+    // hilos lo calculan a la vez el resultado es idéntico, así que la carrera es inofensiva.
+    private var kindCache: FileKind? = null
+
+    /** El tipo se calcula la primera vez que se pide y se reutiliza. */
+    val cachedKind: FileKind
+        get() = kindCache ?: computeKind().also { kindCache = it }
 
     private fun computeKind(): FileKind {
         if (isDirectory) return FileKind.FOLDER
@@ -51,6 +57,28 @@ data class FileItem(
             )
         } catch (e: IOException) {
             FileItem(file) // p. ej. enlace roto: se leen los datos por separado, como antes
+        }
+
+        /**
+         * Como `if (file.isFile) of(file) else null` pero con UNA sola llamada al sistema en vez de dos
+         * (isFile + stat). Sigue enlaces simbólicos igual que File.isFile. Si el sistema no puede leer
+         * los atributos, vuelve al comportamiento anterior.
+         */
+        fun regularFileOrNull(file: File): FileItem? = try {
+            val attrs = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+            if (!attrs.isRegularFile) {
+                null
+            } else {
+                FileItem(
+                    file = file,
+                    name = file.name,
+                    isDirectory = false,
+                    sizeBytes = attrs.size(),
+                    lastModified = attrs.lastModifiedTime().toMillis()
+                )
+            }
+        } catch (e: IOException) {
+            if (file.isFile) FileItem(file) else null
         }
     }
 }
