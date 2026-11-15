@@ -27,7 +27,7 @@ fun openFileExternally(context: Context, file: File): String? {
     val uri: Uri = try {
         uriFor(context, file)
     } catch (e: Exception) {
-        return "No se pudo abrir este archivo"
+        return context.getString(R.string.open_failed)
     }
 
     val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -39,7 +39,7 @@ fun openFileExternally(context: Context, file: File): String? {
         context.startActivity(intent)
         null
     } catch (e: ActivityNotFoundException) {
-        "No hay ninguna app instalada que pueda abrir esto"
+        context.getString(R.string.no_app_to_open)
     }
 }
 
@@ -49,12 +49,12 @@ fun openFileExternally(context: Context, file: File): String? {
  */
 fun shareFiles(context: Context, files: List<File>): String? {
     if (files.isEmpty()) return null
-    if (files.any { it.isDirectory }) return "Las carpetas no se pueden compartir: comprímelas primero"
+    if (files.any { it.isDirectory }) return context.getString(R.string.folders_cannot_share)
 
     val uris = try {
         ArrayList(files.map { uriFor(context, it) })
     } catch (e: Exception) {
-        return "No se pudo compartir este archivo"
+        return context.getString(R.string.share_failed)
     }
 
     val intent = if (files.size == 1) {
@@ -77,9 +77,9 @@ fun shareFiles(context: Context, files: List<File>): String? {
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
     return try {
-        context.startActivity(Intent.createChooser(intent, "Compartir"))
+        context.startActivity(Intent.createChooser(intent, context.getString(R.string.share)))
         null
     } catch (e: ActivityNotFoundException) {
-        "No hay ninguna app para compartir"
+        context.getString(R.string.no_app_to_share)
     }
 }

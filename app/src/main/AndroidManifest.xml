@@ -28,6 +28,7 @@
         android:allowBackup="false"
         android:label="FossFiles"
         android:icon="@mipmap/ic_launcher"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/AppTheme"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="false">

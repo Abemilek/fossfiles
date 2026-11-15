@@ -21,6 +21,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -95,7 +97,13 @@ internal fun FileThumbnail(
 
 @Composable
 internal fun rememberDateFormat(): SimpleDateFormat =
-    remember { SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault()) }
+    // El orden de día/mes/año y la hora (12 h / 24 h) siguen la configuración regional del sistema.
+    remember {
+        SimpleDateFormat(
+            android.text.format.DateFormat.getBestDateTimePattern(Locale.getDefault(), "dMMMyyyyjm"),
+            Locale.getDefault()
+        )
+    }
 
 @Composable
 internal fun FileRow(
@@ -113,11 +121,7 @@ internal fun FileRow(
     }
     val date = dateFmt.format(Date(item.lastModified))
     val subtitle = if (item.isDirectory) {
-        val count = when {
-            childCount < 0 -> null
-            childCount == 1 -> "1 elemento"
-            else -> "$childCount elementos"
-        }
+        val count = if (childCount < 0) null else pluralText(R.plurals.items_count, childCount, childCount)
         listOfNotNull(count, date).joinToString(" · ")
     } else {
         "${formatSize(item.sizeBytes)} · $date"
@@ -134,7 +138,7 @@ internal fun FileRow(
             Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
                 Icon(
                     Icons.Default.CheckCircle,
-                    contentDescription = "Seleccionado",
+                    contentDescription = stringResource(R.string.selected),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
                 )
@@ -153,7 +157,7 @@ internal fun FileRow(
             Spacer(Modifier.width(8.dp))
             Icon(
                 Icons.Default.Star,
-                contentDescription = "Favorito",
+                contentDescription = stringResource(R.string.favorite),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(18.dp)
             )
@@ -192,7 +196,7 @@ internal fun FileGridCell(
             if (selected) {
                 Icon(
                     Icons.Default.CheckCircle,
-                    contentDescription = "Seleccionado",
+                    contentDescription = stringResource(R.string.selected),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(24.dp)
                 )
@@ -200,7 +204,7 @@ internal fun FileGridCell(
             if (favorite) {
                 Icon(
                     Icons.Default.Star,
-                    contentDescription = "Favorito",
+                    contentDescription = stringResource(R.string.favorite),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(18.dp)
                 )

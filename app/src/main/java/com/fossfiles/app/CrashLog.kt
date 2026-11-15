@@ -50,7 +50,7 @@ object CrashLog {
         error.printStackTrace(PrintWriter(trace))
         val text = "FossFiles $version\n" +
             "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MANUFACTURER} ${Build.MODEL}\n" +
-            "Hilo: ${thread.name}\n\n$trace"
+            "Thread: ${thread.name}\n\n$trace"
         File(context.filesDir, FILE_NAME).writeText(text)
     }
 }

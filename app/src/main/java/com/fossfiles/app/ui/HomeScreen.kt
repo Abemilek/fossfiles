@@ -16,6 +16,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
+import androidx.annotation.StringRes
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -39,8 +42,8 @@ fun HomeScreen(viewModel: FileViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("FossFiles") },
-                actions = { IconAction(Icons.Default.Settings, "Ajustes") { viewModel.openSettings() } }
+                title = { Text(stringResource(R.string.app_name)) },
+                actions = { IconAction(Icons.Default.Settings, stringResource(R.string.settings)) { viewModel.openSettings() } }
             )
         }
     ) { padding ->
@@ -49,7 +52,7 @@ fun HomeScreen(viewModel: FileViewModel) {
                 PlainTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = "Buscar en todo el almacenamiento...",
+                    placeholder = stringResource(R.string.search_all),
                     leadingIcon = Icons.Default.Search,
                     onClear = { query = "" },
                     onDone = { viewModel.searchFromHome(query) },
@@ -65,7 +68,7 @@ fun HomeScreen(viewModel: FileViewModel) {
             }
 
             if (quickLinks.isNotEmpty()) {
-                item { SectionTitle("Acceso rápido") }
+                item { SectionTitle(stringResource(R.string.section_quick_access)) }
                 item {
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -78,7 +81,7 @@ fun HomeScreen(viewModel: FileViewModel) {
                 }
             }
 
-            item { SectionTitle("Categorías") }
+            item { SectionTitle(stringResource(R.string.section_categories)) }
             // Dos por fila, dibujadas a mano (una cuadrícula perezosa no puede ir dentro de otra lista).
             items(categoryRows) { pair ->
                 Row(
@@ -86,28 +89,28 @@ fun HomeScreen(viewModel: FileViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     pair.forEach { tile ->
-                        CategoryTile(tile.label, tile.icon, Modifier.weight(1f)) { viewModel.openCategory(tile.category) }
+                        CategoryTile(stringResource(tile.labelRes), tile.icon, Modifier.weight(1f)) { viewModel.openCategory(tile.category) }
                     }
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
             item {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    CategoryTile("Archivos grandes", Icons.Default.Storage, Modifier.fillMaxWidth()) {
+                    CategoryTile(stringResource(R.string.large_files), Icons.Default.Storage, Modifier.fillMaxWidth()) {
                         viewModel.openLargeFiles()
                     }
                 }
             }
             item {
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                    CategoryTile("Papelera", Icons.Default.Delete, Modifier.fillMaxWidth()) {
+                    CategoryTile(stringResource(R.string.trash), Icons.Default.Delete, Modifier.fillMaxWidth()) {
                         viewModel.openTrash()
                     }
                 }
             }
 
             if (recent.isNotEmpty()) {
-                item { SectionTitle("Recientes") }
+                item { SectionTitle(stringResource(R.string.section_recent)) }
                 items(recent, key = { it.path }) { item ->
                     FileRow(
                         item = item,
@@ -124,15 +127,15 @@ fun HomeScreen(viewModel: FileViewModel) {
     }
 }
 
-private data class CategoryTileInfo(val category: Category, val label: String, val icon: ImageVector)
+private data class CategoryTileInfo(val category: Category, @StringRes val labelRes: Int, val icon: ImageVector)
 
 private val categoryTiles = listOf(
-    CategoryTileInfo(Category.IMAGES, "Fotos", Icons.Default.Image),
-    CategoryTileInfo(Category.VIDEOS, "Videos", Icons.Default.Movie),
-    CategoryTileInfo(Category.AUDIO, "Audio", Icons.Default.AudioFile),
-    CategoryTileInfo(Category.DOWNLOADS, "Descargas", Icons.Default.Download),
-    CategoryTileInfo(Category.DOCUMENTS, "Documentos", Icons.Default.Description),
-    CategoryTileInfo(Category.FAVORITES, "Favoritos", Icons.Default.Star)
+    CategoryTileInfo(Category.IMAGES, R.string.cat_photos, Icons.Default.Image),
+    CategoryTileInfo(Category.VIDEOS, R.string.cat_videos, Icons.Default.Movie),
+    CategoryTileInfo(Category.AUDIO, R.string.cat_audio, Icons.Default.AudioFile),
+    CategoryTileInfo(Category.DOWNLOADS, R.string.cat_downloads, Icons.Default.Download),
+    CategoryTileInfo(Category.DOCUMENTS, R.string.cat_documents, Icons.Default.Description),
+    CategoryTileInfo(Category.FAVORITES, R.string.cat_favorites, Icons.Default.Star)
 )
 
 // Se agrupan una sola vez (no en cada recomposición del Home).
@@ -193,7 +196,7 @@ private fun StorageCard(item: VolumeUsage, onClick: () -> Unit) {
         }
         Spacer(Modifier.height(8.dp))
         Text(
-            "${formatSize(storage.usedBytes)} usados de ${formatSize(storage.totalBytes)}",
+            stringResource(R.string.storage_used, formatSize(storage.usedBytes), formatSize(storage.totalBytes)),
             style = MaterialTheme.typography.bodySmall
         )
     }

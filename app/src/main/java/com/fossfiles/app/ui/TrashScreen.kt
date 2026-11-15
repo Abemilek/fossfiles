@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,23 +44,23 @@ fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
             topBar = {
                 if (selected.isNotEmpty()) {
                     TopAppBar(
-                        title = { Text(if (selected.size == 1) "1 seleccionado" else "${selected.size} seleccionados", maxLines = 1) },
-                        navigationIcon = { IconAction(Icons.Default.Close, "Cancelar selección") { viewModel.clearTrashSelection() } },
+                        title = { Text(pluralText(R.plurals.selected_count, selected.size, selected.size), maxLines = 1) },
+                        navigationIcon = { IconAction(Icons.Default.Close, stringResource(R.string.cancel_selection)) { viewModel.clearTrashSelection() } },
                         actions = {
-                            IconAction(Icons.Default.SelectAll, "Seleccionar todo") { viewModel.selectAllTrash() }
-                            IconAction(Icons.Default.Restore, "Restaurar") { viewModel.restoreSelectedFromTrash() }
-                            IconAction(Icons.Default.DeleteForever, "Eliminar definitivamente") {
+                            IconAction(Icons.Default.SelectAll, stringResource(R.string.select_all)) { viewModel.selectAllTrash() }
+                            IconAction(Icons.Default.Restore, stringResource(R.string.restore)) { viewModel.restoreSelectedFromTrash() }
+                            IconAction(Icons.Default.DeleteForever, stringResource(R.string.delete_permanently)) {
                                 confirm = TrashConfirm.DELETE_FOREVER
                             }
                         }
                     )
                 } else {
                     TopAppBar(
-                        title = { Text("Papelera") },
-                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) },
+                        title = { Text(stringResource(R.string.trash)) },
+                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back), onBack) },
                         actions = {
                             if (entries.isNotEmpty()) {
-                                IconAction(Icons.Default.DeleteSweep, "Vaciar papelera") { confirm = TrashConfirm.EMPTY }
+                                IconAction(Icons.Default.DeleteSweep, stringResource(R.string.empty_trash)) { confirm = TrashConfirm.EMPTY }
                             }
                         }
                     )
@@ -67,11 +69,11 @@ fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         ) { padding ->
             Column(Modifier.padding(padding)) {
                 Text(
-                    "Lo que elimines se conserva aquí $trashDays días y luego se borra solo. Ocupa espacio en el dispositivo hasta entonces. Puedes cambiar los días en Ajustes.",
+                    pluralText(R.plurals.trash_info, trashDays, trashDays),
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-                if (loaded && !working && entries.isEmpty()) EmptyMessage("La papelera está vacía")
+                if (loaded && !working && entries.isEmpty()) EmptyMessage(stringResource(R.string.trash_is_empty))
                 LazyColumn {
                     items(entries, key = { it.file.absolutePath }) { entry ->
                         TrashRow(
@@ -88,9 +90,9 @@ fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
 
         when (confirm) {
             TrashConfirm.EMPTY -> ConfirmDialog(
-                title = "¿Vaciar la papelera?",
-                text = "Se borrarán para siempre ${entries.size} elementos. Esta acción no se puede deshacer.",
-                confirmLabel = "Vaciar",
+                title = stringResource(R.string.empty_trash_title),
+                text = pluralText(R.plurals.trash_forever_text, entries.size, entries.size),
+                confirmLabel = stringResource(R.string.empty_action),
                 onConfirm = {
                     viewModel.emptyTrash()
                     confirm = null
@@ -98,9 +100,9 @@ fun TrashScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 onDismiss = { confirm = null }
             )
             TrashConfirm.DELETE_FOREVER -> ConfirmDialog(
-                title = "¿Eliminar definitivamente?",
-                text = "Se borrarán para siempre ${selected.size} elementos. Esta acción no se puede deshacer.",
-                confirmLabel = "Eliminar",
+                title = stringResource(R.string.delete_permanently_title),
+                text = pluralText(R.plurals.trash_forever_text, selected.size, selected.size),
+                confirmLabel = stringResource(R.string.delete),
                 onConfirm = {
                     viewModel.deleteSelectedFromTrashForever()
                     confirm = null
@@ -135,7 +137,7 @@ private fun TrashRow(entry: TrashBin.Entry, selected: Boolean, dateFmt: SimpleDa
     ) {
         Icon(
             imageVector = if (selected) Icons.Default.CheckCircle else iconFor(shown),
-            contentDescription = if (selected) "Seleccionado" else null,
+            contentDescription = if (selected) stringResource(R.string.selected) else null,
             tint = if (selected) MaterialTheme.colorScheme.primary else LocalContentColor.current,
             modifier = Modifier.size(32.dp)
         )
@@ -149,7 +151,7 @@ private fun TrashRow(entry: TrashBin.Entry, selected: Boolean, dateFmt: SimpleDa
             )
             if (origin != null) {
                 Text(
-                    text = "De: $origin",
+                    text = stringResource(R.string.trash_from, origin),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

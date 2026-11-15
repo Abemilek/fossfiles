@@ -14,6 +14,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -38,8 +40,8 @@ fun SettingsScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Ajustes") },
-                    navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) }
+                    title = { Text(stringResource(R.string.settings)) },
+                    navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back), onBack) }
                 )
             }
         ) { padding ->
@@ -49,32 +51,28 @@ fun SettingsScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
-                SettingsHeader("Apariencia")
-                SettingRow("Tema", theme.label) { viewModel.cycleTheme() }
-                SettingRow("Vista predeterminada", if (grid) "Cuadrícula" else "Lista") { viewModel.toggleGrid() }
-                SettingRow("Archivos ocultos", if (hidden) "Se muestran" else "Se ocultan") { viewModel.toggleHidden() }
+                SettingsHeader(stringResource(R.string.section_appearance))
+                SettingRow(stringResource(R.string.setting_theme), stringResource(theme.labelRes)) { viewModel.cycleTheme() }
+                SettingRow(stringResource(R.string.setting_default_view), stringResource(if (grid) R.string.value_grid else R.string.value_list)) { viewModel.toggleGrid() }
+                SettingRow(stringResource(R.string.setting_hidden_files), stringResource(if (hidden) R.string.hidden_shown else R.string.hidden_not_shown)) { viewModel.toggleHidden() }
 
-                SettingsHeader("Papelera")
-                SettingRow("Conservar eliminados", "$days días (toca para cambiar)") { viewModel.cycleTrashDays() }
+                SettingsHeader(stringResource(R.string.trash))
+                SettingRow(stringResource(R.string.setting_keep_deleted), pluralText(R.plurals.keep_days_value, days, days)) { viewModel.cycleTrashDays() }
 
-                SettingsHeader("Mantenimiento")
-                SettingRow("Liberar memoria", "Vacía la caché de miniaturas") { viewModel.clearThumbnailCache() }
-                SettingRow("Registro de errores", "Ver el último error de la app (se queda en tu dispositivo)") {
+                SettingsHeader(stringResource(R.string.section_maintenance))
+                SettingRow(stringResource(R.string.setting_free_memory), stringResource(R.string.setting_free_memory_desc)) { viewModel.clearThumbnailCache() }
+                SettingRow(stringResource(R.string.setting_error_log), stringResource(R.string.setting_error_log_desc)) {
                     viewModel.showCrashLog()
                 }
 
-                SettingsHeader("Acerca de")
+                SettingsHeader(stringResource(R.string.section_about))
                 Text(
-                    text = "FossFiles ${viewModel.appVersion}",
+                    text = stringResource(R.string.about_version, viewModel.appVersion),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
                 Text(
-                    text = "Software libre (GPL-3.0). Sin Internet, sin telemetría, sin anuncios y sin servicios de Google.\n\n" +
-                        "La app no tiene permiso de Internet: es Android quien le impide conectarse a cualquier red. " +
-                        "Puedes comprobarlo en Ajustes de Android → Apps → FossFiles → Permisos.\n\n" +
-                        "Desde Android 11 las carpetas Android/data y Android/obb están protegidas por el sistema y " +
-                        "ninguna app de archivos puede abrirlas.",
+                    text = stringResource(R.string.about_text),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -84,19 +82,21 @@ fun SettingsScreen(viewModel: FileViewModel, onBack: () -> Unit) {
 
         crash?.let { text ->
             ModalOverlay(onDismiss = { viewModel.closeCrashLog() }) {
-                Text("Último error", style = MaterialTheme.typography.titleLarge)
+                // Se resuelve aquí: dentro del onClick ya no hay contexto composable.
+                val copiedMessage = stringResource(R.string.copied_log)
+                Text(stringResource(R.string.last_error), style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                     Text(text, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                 }
                 Spacer(Modifier.height(8.dp))
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = androidx.compose.ui.Alignment.End) {
-                    PlainTextButton("Copiar") {
+                    PlainTextButton(stringResource(R.string.copy)) {
                         clipboard.setText(AnnotatedString(text))
-                        viewModel.message.value = "Copiado: pégalo en un reporte si quieres"
+                        viewModel.message.value = copiedMessage
                     }
-                    PlainTextButton("Borrar registro") { viewModel.clearCrashLog() }
-                    PlainTextButton("Cerrar") { viewModel.closeCrashLog() }
+                    PlainTextButton(stringResource(R.string.clear_log)) { viewModel.clearCrashLog() }
+                    PlainTextButton(stringResource(R.string.close)) { viewModel.closeCrashLog() }
                 }
             }
         }

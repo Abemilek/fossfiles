@@ -22,11 +22,12 @@ android {
         applicationId = "com.fossfiles.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "3.0.0"
+        versionCode = 6
+        versionName = "3.3.0"
 
-        // La app está solo en español: no se empaquetan las traducciones de las librerías
-        // (Compose/AndroidX traen decenas de idiomas) -> APK más chico.
+        // La app está en inglés (por defecto) y español: se usa el idioma del sistema. Solo se empaquetan
+        // esos dos idiomas, también para las librerías (Compose/AndroidX traen decenas) -> APK más chico.
+        // Para añadir un idioma: res/values-xx/strings.xml, res/xml/locales_config.xml y esta lista.
         resourceConfigurations += listOf("es", "en")
     }
 

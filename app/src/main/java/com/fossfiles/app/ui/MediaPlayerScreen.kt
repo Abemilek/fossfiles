@@ -19,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -130,7 +132,7 @@ fun MediaPlayerOverlay(
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconAction(Icons.Default.Close, "Cerrar", onClose)
+                IconAction(Icons.Default.Close, stringResource(R.string.close), onClose)
                 Text(
                     text = "${state.index + 1}/${state.items.size}  ${item.name}",
                     color = Color.White,
@@ -138,7 +140,7 @@ fun MediaPlayerOverlay(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconAction(Icons.AutoMirrored.Filled.OpenInNew, "Abrir con otra app") { onOpenWith(item) }
+                IconAction(Icons.AutoMirrored.Filled.OpenInNew, stringResource(R.string.open_with_other)) { onOpenWith(item) }
             }
 
             Column(
@@ -159,12 +161,12 @@ fun MediaPlayerOverlay(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.weight(1f))
-                    IconAction(Icons.Default.SkipPrevious, "Anterior") { onStep(-1) }
+                    IconAction(Icons.Default.SkipPrevious, stringResource(R.string.previous)) { onStep(-1) }
                     IconAction(
                         if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (playing) "Pausar" else "Reproducir"
+                        stringResource(if (playing) R.string.pause else R.string.play)
                     ) { controller.togglePlay() }
-                    IconAction(Icons.Default.SkipNext, "Siguiente") { onStep(1) }
+                    IconAction(Icons.Default.SkipNext, stringResource(R.string.next)) { onStep(1) }
                 }
             }
         }

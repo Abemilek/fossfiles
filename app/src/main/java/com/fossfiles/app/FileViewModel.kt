@@ -1,6 +1,7 @@
 package com.fossfiles.app
 
 import android.content.Context
+import androidx.annotation.StringRes
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,11 +16,14 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class ScreenMode { HOME, BROWSE, CATEGORY, TRASH, SETTINGS }
-enum class Category(val label: String) {
-    IMAGES("Fotos"), VIDEOS("Videos"), AUDIO("Audio"), DOWNLOADS("Descargas"), DOCUMENTS("Documentos"), FAVORITES("Favoritos")
+enum class Category(@StringRes val labelRes: Int) {
+    IMAGES(R.string.cat_photos), VIDEOS(R.string.cat_videos), AUDIO(R.string.cat_audio),
+    DOWNLOADS(R.string.cat_downloads), DOCUMENTS(R.string.cat_documents), FAVORITES(R.string.cat_favorites)
 }
 
-enum class ThemeMode(val label: String) { SYSTEM("Del sistema"), LIGHT("Claro"), DARK("Oscuro") }
+enum class ThemeMode(@StringRes val labelRes: Int) {
+    SYSTEM(R.string.theme_system), LIGHT(R.string.theme_light), DARK(R.string.theme_dark)
+}
 
 /** Imágenes que se pueden recorrer en el visor y cuál se está viendo. */
 data class ViewerState(val images: List<FileItem>, val index: Int)
@@ -52,6 +56,12 @@ private class Loaded(val items: List<FileItem>, val notice: String? = null)
 // appContext: SIEMPRE el applicationContext, nunca el de la Activity — así el
 // ViewModel jamás retiene una Activity y no hay riesgo de fuga en rotaciones.
 class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel() {
+
+    // Los errores de la lógica de archivos llevan un código; aquí se les pone el texto en el idioma del
+    // sistema (inglés o español). Va primero: nada puede lanzar un error antes de que esto esté listo.
+    init {
+        OpText.renderer = { code, args -> renderOpMessage(appContext.resources, code, args) }
+    }
 
     private val root = rootDir
 
@@ -162,12 +172,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                     VolumeUsage(v, try { StorageStats.read(v.root) } catch (e: Exception) { StorageInfo(0, 0) })
                 }
                 val known = listOf(
-                    "Descargas" to "Download",
-                    "Cámara" to "DCIM",
-                    "Imágenes" to "Pictures",
-                    "Documentos" to "Documents",
-                    "Música" to "Music",
-                    "Películas" to "Movies"
+                    appContext.getString(R.string.cat_downloads) to "Download",
+                    appContext.getString(R.string.link_camera) to "DCIM",
+                    appContext.getString(R.string.link_pictures) to "Pictures",
+                    appContext.getString(R.string.cat_documents) to "Documents",
+                    appContext.getString(R.string.link_music) to "Music",
+                    appContext.getString(R.string.link_movies) to "Movies"
                 )
                 val links = known.map { QuickLink(it.first, File(root, it.second)) }.filter { it.dir.isDirectory }
                 ensureActive() // si ya no hace falta este resultado, se evita la parte más lenta
@@ -205,7 +215,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
             } catch (e: Exception) {
                 items.value = emptyList()
                 loadedDir.value = forDir
-                message.value = e.message ?: "No se pudo leer esta ubicación"
+                message.value = e.message ?: appContext.getString(R.string.load_error)
             }
         }
         loadJob = job
@@ -237,7 +247,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                 val r = FileRepository.search(dir, query, mode, active, hidden, activeFilter, reverse)
                 Loaded(
                     r.items,
-                    if (r.truncated) "Mostrando solo los primeros ${FileRepository.MAX_SEARCH_RESULTS} resultados" else null
+                    if (r.truncated) appContext.getString(R.string.search_truncated, FileRepository.MAX_SEARCH_RESULTS) else null
                 )
             }
         }
@@ -334,7 +344,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun openCategory(category: Category) {
         clearSelection()
         currentCategory.value = category
-        categoryTitle.value = category.label
+        categoryTitle.value = appContext.getString(category.labelRes)
         screenMode.value = ScreenMode.CATEGORY
         loadCategory(category)
     }
@@ -466,12 +476,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     fun clearThumbnailCache() {
         ThumbnailLoader.clear()
-        message.value = "Caché de miniaturas vaciada"
+        message.value = appContext.getString(R.string.thumb_cache_cleared)
     }
 
     fun showCrashLog() {
         val text = CrashLog.read(appContext)
-        if (text == null) message.value = "No hay errores registrados" else crashText.value = text
+        if (text == null) message.value = appContext.getString(R.string.no_errors_logged) else crashText.value = text
     }
 
     fun closeCrashLog() { crashText.value = null }
@@ -479,7 +489,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun clearCrashLog() {
         CrashLog.clear(appContext)
         crashText.value = null
-        message.value = "Registro de errores borrado"
+        message.value = appContext.getString(R.string.log_cleared)
     }
 
     // ---------- Selección ----------
@@ -570,9 +580,9 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                     try {
                         op(item, progress)
                     } catch (e: FileOpException) {
-                        if (e.message != OpProgress.CANCELLED_MESSAGE) failed.add(e.message ?: "Error")
+                        if (e.code != OpMsg.CANCELLED) failed.add(e.message ?: appContext.getString(R.string.op_error))
                     } catch (e: Exception) {
-                        failed.add("Error inesperado con «${label(item)}»")
+                        failed.add(appContext.getString(R.string.op_unexpected, appContext.getString(R.string.quoted_name, label(item))))
                     }
                     progress.itemsDone++
                 }
@@ -584,9 +594,9 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
             currentProgress = null
             isWorking.value = false
             if (progress.cancelled) {
-                message.value = OpProgress.CANCELLED_MESSAGE
+                message.value = appContext.getString(R.string.op_cancelled)
             } else if (errors.isNotEmpty()) {
-                message.value = errors.first() + if (errors.size > 1) " (y ${errors.size - 1} errores más)" else ""
+                message.value = errors.first() + if (errors.size > 1) " " + appContext.resources.getQuantityString(R.plurals.more_errors, errors.size - 1, errors.size - 1) else ""
             }
             onDone()
         }
@@ -596,10 +606,10 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val total = p.totalBytes
         val done = p.bytesDone
         val current = (p.itemsDone + 1).coerceAtMost(p.itemsTotal)
-        var detail = if (p.itemsTotal > 1) "$current de ${p.itemsTotal}" else ""
+        var detail = if (p.itemsTotal > 1) appContext.getString(R.string.progress_items, current, p.itemsTotal) else ""
         if (total > 0) {
             if (detail.isNotEmpty()) detail += " · "
-            detail += "${formatSize(done)} de ${formatSize(total)}"
+            detail += appContext.getString(R.string.progress_bytes, formatSize(done), formatSize(total))
         }
         progressInfo.value = ProgressInfo(
             title = title,
@@ -624,12 +634,12 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
 
     fun createFolder(name: String) {
         val parent = currentDir.value
-        runBatch(listOf(parent), "Creando carpeta") { f, _ -> FileRepository.createFolder(f, name) }
+        runBatch(listOf(parent), appContext.getString(R.string.op_creating_folder)) { f, _ -> FileRepository.createFolder(f, name) }
     }
 
     fun rename(item: File, newName: String) {
         clearSelection()
-        runBatch(listOf(item), "Renombrando") { f, p ->
+        runBatch(listOf(item), appContext.getString(R.string.op_renaming)) { f, p ->
             val renamed = FileRepository.rename(f, newName)
             p.touch(f.path)
             p.touch(renamed.path)
@@ -643,7 +653,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun deleteSelected(permanent: Boolean) {
         val files = selectedFiles()
         clearSelection()
-        runBatch(files, if (permanent) "Eliminando" else "Enviando a la papelera") { f, p ->
+        runBatch(files, appContext.getString(if (permanent) R.string.op_deleting else R.string.op_moving_to_trash)) { f, p ->
             if (permanent) FileRepository.delete(f, p) else binFor(f).moveToTrash(f, progress = p)
             if (f.absolutePath in favorites.value) updateFavorites { favs -> favs - f.absolutePath }
         }
@@ -677,7 +687,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val copiesData = !cut || sources.any { VolumePaths.volumeOf(it, volumeRoots) != destVolume }
         runBatch(
             sources,
-            if (cut) "Moviendo" else "Copiando",
+            appContext.getString(if (cut) R.string.op_moving else R.string.op_copying),
             bytesOf = { files, p -> if (copiesData) totalSize(files, p) else 0L }
         ) { f, p ->
             if (cut) FileRepository.move(f, dest, p) else FileRepository.copy(f, dest, p)
@@ -690,7 +700,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
         val files = selectedFiles()
         val dest = currentDir.value
         clearSelection()
-        runTasks(listOf(dest), "Comprimiendo", { it.name }, { _, p -> totalSize(files, p) }, { d, p ->
+        runTasks(listOf(dest), appContext.getString(R.string.op_compressing), { it.name }, { _, p -> totalSize(files, p) }, { d, p ->
             FileRepository.zip(files, d, p)
         }) { reload() }
     }
@@ -709,9 +719,9 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     }
 
     private fun extractZips(zips: List<File>) {
-        runBatch(zips, "Extrayendo", bytesOf = { files, _ -> files.sumOf { FileRepository.zipUncompressedSize(it) } }) { f, p ->
+        runBatch(zips, appContext.getString(R.string.op_extracting), bytesOf = { files, _ -> files.sumOf { FileRepository.zipUncompressedSize(it) } }) { f, p ->
             val out = FileRepository.unzip(f, p)
-            message.value = "Extraído en «${out.name}»"
+            message.value = appContext.getString(R.string.extracted_into, appContext.getString(R.string.quoted_name, out.name))
         }
     }
 
@@ -865,7 +875,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
                 trashSelection.value = trashSelection.value.filterTo(HashSet()) { it in keys }
             } catch (e: Exception) {
                 trashLoaded.value = true
-                message.value = "No se pudo leer la papelera"
+                message.value = appContext.getString(R.string.trash_read_error)
             }
         }
     }
@@ -891,7 +901,7 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun restoreSelectedFromTrash() {
         val chosen = selectedTrash()
         clearTrashSelection()
-        runTasks(chosen, "Restaurando", { it.name }, { _, _ -> 0L }, { entry, p ->
+        runTasks(chosen, appContext.getString(R.string.op_restoring), { it.name }, { _, _ -> 0L }, { entry, p ->
             // <volumen>/.fossfiles-trash/<id>/<nombre>: tres niveles hasta la raíz del volumen
             val volumeRoot = entry.file.parentFile?.parentFile?.parentFile ?: root
             TrashBin.of(entry)?.restore(entry, volumeRoot, p)
@@ -901,14 +911,14 @@ class FileViewModel(rootDir: File, private val appContext: Context) : ViewModel(
     fun deleteSelectedFromTrashForever() {
         val chosen = selectedTrash()
         clearTrashSelection()
-        runTasks(chosen, "Eliminando", { it.name }, { _, _ -> 0L }, { entry, _ ->
+        runTasks(chosen, appContext.getString(R.string.op_deleting), { it.name }, { _, _ -> 0L }, { entry, _ ->
             TrashBin.of(entry)?.deleteForever(entry)
         }) { loadTrash() }
     }
 
     fun emptyTrash() {
         clearTrashSelection()
-        runTasks(listOf(Unit), "Vaciando la papelera", { "la papelera" }, { _, _ -> 0L }, { _, _ ->
+        runTasks(listOf(Unit), appContext.getString(R.string.op_emptying_trash), { appContext.getString(R.string.the_trash) }, { _, _ -> 0L }, { _, _ ->
             allBins().forEach { it.empty() }
         }) { loadTrash() }
     }

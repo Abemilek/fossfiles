@@ -16,6 +16,7 @@ import java.io.File
  */
 class PlayerController(context: Context, private val onCompleted: () -> Unit) {
 
+    private val appContext = context.applicationContext
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private var player: MediaPlayer? = null
     private var surface: Surface? = null
@@ -156,7 +157,7 @@ class PlayerController(context: Context, private val onCompleted: () -> Unit) {
     }
 
     private fun fail() {
-        error.value = "No se pudo reproducir este archivo"
+        error.value = appContext.getString(R.string.playback_failed)
         isPlaying.value = false
     }
 

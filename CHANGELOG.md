@@ -1,7 +1,17 @@
 # Changelog
 
-## Unreleased
-Performance pass. No functional changes; versionCode/versionName untouched.
+## 3.3.0
+Two interface languages: English (default) and Spanish, selected by the system language.
+- All user-visible text moved to string resources (`values/` English, `values-es/` Spanish), with proper
+  plurals ("1 item" / "5 items", "1 elemento" / "5 elementos").
+- File-operation errors now carry a typed code (`OpMsg`) and are translated in the Android layer; cancellation is
+  detected by code instead of comparing message text. Default names the app creates ("Archive.zip" / "Archivo.zip",
+  "extracted" / "extraido") follow the language too.
+- Dates follow the system locale (order and 12/24 h). Per-app language picker on Android 13+ (`locales_config.xml`).
+- Crash log label "Hilo:" is now "Thread:" (developer-facing).
+
+### Performance (from 3.2.0)
+No functional changes; versionCode/versionName untouched.
 - Faster sorting of large folders (~50-60 % less time at 50 000 files), faster category scans and
   pre-copy size measurement (~20-45 % less), lower memory per listed file.
 - Thumbnails already in cache show on the first frame; in-flight thumbnail decodes are cancelled when a row

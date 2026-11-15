@@ -209,7 +209,7 @@ class FileRepositoryTest {
     fun zip_variosArchivos_yNombreRepetido() = withTempDir { root ->
         val a = root.file("a.txt")
         val b = root.file("b.txt")
-        assertEquals("Archivo.zip", FileRepository.zip(listOf(a, b), root).name)
+        assertEquals(OpText.render(OpMsg.DEFAULT_ARCHIVE_NAME) + ".zip", FileRepository.zip(listOf(a, b), root).name)
         assertEquals("a.zip", FileRepository.zip(listOf(a), root).name)
         val other = root.dir("otra").file("a.txt")
         expectError { FileRepository.zip(listOf(a, other), root) }
@@ -316,7 +316,7 @@ class FileRepositoryTest {
             FileRepository.copy(src, dest, cancelled)
             fail("Se esperaba cancelación")
         } catch (e: FileOpException) {
-            assertEquals(OpProgress.CANCELLED_MESSAGE, e.message)
+            assertEquals(OpMsg.CANCELLED, e.code)
         }
         assertEquals(listOf("grande.bin"), dest.list()!!.toList())   // la copia cancelada no dejó nada
     }
@@ -355,13 +355,13 @@ class FileRepositoryTest {
             FileRepository.listDirectory(File(root, "Android/data/com.otra.app"))
             fail("Se esperaba un error")
         } catch (e: FileOpException) {
-            assertTrue(e.message!!.contains("Android protege"))
+            assertEquals(OpMsg.PROTECTED_FOLDER, e.code)
         }
         try {
             FileRepository.listDirectory(File(root, "otra-carpeta-inexistente"))
             fail("Se esperaba un error")
         } catch (e: FileOpException) {
-            assertEquals("No se puede leer esta carpeta", e.message)
+            assertEquals(OpMsg.CANNOT_READ_FOLDER, e.code)
         }
     }
 

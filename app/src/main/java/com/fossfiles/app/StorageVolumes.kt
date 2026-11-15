@@ -18,7 +18,7 @@ object StorageVolumes {
     fun list(context: Context): List<StorageVolumeInfo> {
         val primary = Environment.getExternalStorageDirectory()
         val result = ArrayList<StorageVolumeInfo>()
-        result.add(StorageVolumeInfo("Almacenamiento interno", primary, true))
+        result.add(StorageVolumeInfo(context.getString(R.string.storage_internal), primary, true))
         try {
             val manager = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
             for (dir in context.getExternalFilesDirs(null)) {
@@ -26,7 +26,7 @@ object StorageVolumes {
                 val root = VolumePaths.rootFromAppDir(dir) ?: continue
                 if (root.path == primary.path || !root.isDirectory) continue
                 if (result.any { it.root.path == root.path }) continue
-                val label = manager?.getStorageVolume(root)?.getDescription(context) ?: "Tarjeta SD"
+                val label = manager?.getStorageVolume(root)?.getDescription(context) ?: context.getString(R.string.storage_sd_card)
                 result.add(StorageVolumeInfo(label, root, false))
             }
         } catch (e: Exception) {

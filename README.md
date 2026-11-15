@@ -174,7 +174,7 @@ signed with it.
 
 > There is a **single universal APK**: the only native library is a small AndroidX support file
 > (`libandroidx.graphics.path.so`), so one APK that covers every architecture is simpler than
-> per-CPU builds. Only the strings for Spanish + English are packaged, which keeps the APK small.
+> per-CPU builds. Only the strings for English + Spanish are packaged, which keeps the APK small.
 
 ## Testing
 The file logic (`FileRepository`), the trash bin (`TrashBin`), the search filters (`SearchFilter`),
@@ -211,10 +211,11 @@ symlinks, several volumes).
 - ZIP extraction creates a new folder next to the archive, rejects unsafe paths and stops if there is
   no free space.
 - The viewer does not open SVG (open those with another app); the player uses the system codecs.
-- The interface is currently in Spanish.
+- The interface is available in **English and Spanish** in the same APK and follows the system language
+  (any other language falls back to English). On Android 13+ it can also be changed per app in system settings.
 
 ## Possible next steps
-- English translation of the interface (string resources) and other languages
+- More interface languages (add `res/values-xx/strings.xml` and list it in `res/xml/locales_config.xml`)
 - Subtitles, playback speed and background playback (which would need a service with a notification)
 - Search inside file contents (text documents)
 - Browsing inside a ZIP without extracting it

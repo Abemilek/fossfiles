@@ -37,11 +37,10 @@ class OpProgress {
 
     /** Lanza [FileOpException] si el usuario canceló: las operaciones lo llaman con frecuencia. */
     fun check() {
-        if (cancelled) throw FileOpException(CANCELLED_MESSAGE)
+        if (cancelled) throw FileOpException(OpMsg.CANCELLED)
     }
 
     companion object {
         const val MAX_TOUCHED = 500
-        const val CANCELLED_MESSAGE = "Operación cancelada"
     }
 }

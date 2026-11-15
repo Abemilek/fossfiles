@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Idiomas que la app soporta. Android 13+ los muestra en Ajustes > Sistema > Idiomas > Idiomas de las apps.
+     Para añadir uno: crea res/values-xx/strings.xml y agrégalo aquí (y en resourceConfigurations del build). -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en" />
+    <locale android:name="es" />
+</locale-config>

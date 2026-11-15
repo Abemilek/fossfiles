@@ -31,19 +31,19 @@ class TrashBin(private val dir: File) {
 
     /** Mueve [item] a la papelera con un renombrado (instantáneo). Los enlaces simbólicos se borran. */
     fun moveToTrash(item: File, now: Long = System.currentTimeMillis(), progress: OpProgress? = null) {
-        if (!Files.exists(item.toPath(), LinkOption.NOFOLLOW_LINKS)) throw FileOpException("«${item.name}» ya no existe")
-        if (isInside(item)) throw FileOpException("«${item.name}» ya está en la papelera")
+        if (!Files.exists(item.toPath(), LinkOption.NOFOLLOW_LINKS)) throw FileOpException(OpMsg.GONE, item.name)
+        if (isInside(item)) throw FileOpException(OpMsg.TRASH_ALREADY, item.name)
         // Un enlace simbólico no tiene contenido que rescatar: se elimina directamente.
         if (Files.isSymbolicLink(item.toPath())) {
             FileRepository.delete(item, progress)
             return
         }
-        if (!dir.isDirectory && !dir.mkdirs()) throw FileOpException("No se pudo crear la papelera")
+        if (!dir.isDirectory && !dir.mkdirs()) throw FileOpException(OpMsg.TRASH_CREATE_FAILED)
         try { File(dir, ".nomedia").createNewFile() } catch (e: IOException) { /* no es crítico */ }
 
         val id = newId(now)
         val holder = File(dir, id)
-        if (!holder.mkdir()) throw FileOpException("No se pudo usar la papelera")
+        if (!holder.mkdir()) throw FileOpException(OpMsg.TRASH_USE_FAILED)
         try {
             FileRepository.move(item, holder, progress)
         } catch (e: FileOpException) {
@@ -112,7 +112,7 @@ class TrashBin(private val dir: File) {
             if (f.name == ".nomedia") continue
             try { FileRepository.delete(f) } catch (e: FileOpException) { failed++ }
         }
-        if (failed > 0) throw FileOpException("No se pudo borrar $failed elementos de la papelera")
+        if (failed > 0) throw FileOpException(OpMsg.TRASH_EMPTY_FAILED, failed)
     }
 
     /** Borra lo que lleva más de [maxAgeMs] en la papelera. Devuelve cuántos borró. */

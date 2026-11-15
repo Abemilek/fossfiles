@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
@@ -241,19 +242,19 @@ private fun PermissionScreen(onGrant: () -> Unit, onOpenSettings: () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            "FossFiles necesita acceso al almacenamiento para mostrar tus archivos.",
+            stringResource(R.string.perm_needed),
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "La app no tiene permiso de Internet, así que nunca puede enviar tus datos a ningún servidor.",
+            stringResource(R.string.perm_no_internet),
             style = MaterialTheme.typography.bodySmall,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
         Spacer(Modifier.height(24.dp))
-        PlainButton(text = "Conceder acceso", onClick = onGrant)
+        PlainButton(text = stringResource(R.string.grant_access), onClick = onGrant)
         Spacer(Modifier.height(8.dp))
-        PlainTextButton("Abrir ajustes de la app", onOpenSettings)
+        PlainTextButton(stringResource(R.string.open_app_settings), onOpenSettings)
     }
 }
 

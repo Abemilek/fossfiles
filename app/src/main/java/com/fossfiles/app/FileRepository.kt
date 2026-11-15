@@ -19,9 +19,6 @@ import java.util.zip.ZipOutputStream
 
 enum class SortMode { NAME, DATE, SIZE, TYPE }
 
-/** Error con un mensaje ya listo para mostrarse al usuario. */
-class FileOpException(message: String) : Exception(message)
-
 data class SearchResult(val items: List<FileItem>, val truncated: Boolean)
 
 data class TreeStats(val files: Int, val folders: Int, val bytes: Long)
@@ -49,7 +46,7 @@ object FileRepository {
         showHidden: Boolean = true,
         reverse: Boolean = false
     ): List<FileItem> {
-        val children = dir.listFiles() ?: throw FileOpException(unreadableMessage(dir))
+        val children = dir.listFiles() ?: throw unreadable(dir)
         val items = ArrayList<FileItem>(children.size)
         for (child in children) {
             if (!showHidden && child.name.startsWith(".")) continue
@@ -58,12 +55,8 @@ object FileRepository {
         return sortItems(items, sortMode, reverse)
     }
 
-    private fun unreadableMessage(dir: File): String =
-        if (PROTECTED_DIR.matches(dir.absolutePath)) {
-            "Android protege esta carpeta (Android/data y Android/obb): ninguna app de archivos puede abrirla desde Android 11"
-        } else {
-            "No se puede leer esta carpeta"
-        }
+    private fun unreadable(dir: File): FileOpException =
+        FileOpException(if (PROTECTED_DIR.matches(dir.absolutePath)) OpMsg.PROTECTED_FOLDER else OpMsg.CANNOT_READ_FOLDER)
 
     private class Keyed(
         @JvmField val item: FileItem,
@@ -215,10 +208,10 @@ object FileRepository {
     /** Devuelve el nombre limpio o lanza [FileOpException] si no es válido. */
     fun validateName(raw: String): String {
         val name = raw.trim()
-        if (name.isEmpty()) throw FileOpException("El nombre no puede estar vacío")
-        if (name == "." || name == "..") throw FileOpException("Nombre no válido")
-        if (name.any { it == '/' || it == '\u0000' }) throw FileOpException("El nombre no puede contener «/»")
-        if (name.toByteArray(Charsets.UTF_8).size > 255) throw FileOpException("El nombre es demasiado largo")
+        if (name.isEmpty()) throw FileOpException(OpMsg.NAME_EMPTY)
+        if (name == "." || name == "..") throw FileOpException(OpMsg.NAME_INVALID)
+        if (name.any { it == '/' || it == '\u0000' }) throw FileOpException(OpMsg.NAME_HAS_SLASH)
+        if (name.toByteArray(Charsets.UTF_8).size > 255) throw FileOpException(OpMsg.NAME_TOO_LONG)
         return name
     }
 
@@ -233,7 +226,7 @@ object FileRepository {
             val candidate = File(dir, "$base ($n)$ext")
             if (!existsNoFollow(candidate)) return candidate
         }
-        throw FileOpException("No se pudo encontrar un nombre libre para «$name»")
+        throw FileOpException(OpMsg.NO_FREE_NAME, name)
     }
 
     // ---------- Crear / renombrar / borrar ----------
@@ -241,26 +234,26 @@ object FileRepository {
     fun createFolder(parent: File, rawName: String): File {
         val name = validateName(rawName)
         val target = File(parent, name)
-        if (existsNoFollow(target)) throw FileOpException("Ya existe «$name»")
-        if (!target.mkdir()) throw FileOpException("No se pudo crear la carpeta")
+        if (existsNoFollow(target)) throw FileOpException(OpMsg.ALREADY_EXISTS, name)
+        if (!target.mkdir()) throw FileOpException(OpMsg.CREATE_FOLDER_FAILED)
         return target
     }
 
     fun rename(item: File, rawName: String): File {
         val name = validateName(rawName)
         if (name == item.name) return item
-        val parent = item.parentFile ?: throw FileOpException("No se puede renombrar esta ubicación")
+        val parent = item.parentFile ?: throw FileOpException(OpMsg.RENAME_LOCATION)
         val target = File(parent, name)
         // Si el sistema de archivos ignora mayúsculas, "a" -> "A" apunta al mismo archivo: se permite.
-        if (existsNoFollow(target) && !isSameFile(item, target)) throw FileOpException("Ya existe «$name»")
-        if (!item.renameTo(target)) throw FileOpException("No se pudo renombrar «${item.name}»")
+        if (existsNoFollow(target) && !isSameFile(item, target)) throw FileOpException(OpMsg.ALREADY_EXISTS, name)
+        if (!item.renameTo(target)) throw FileOpException(OpMsg.RENAME_FAILED, item.name)
         return target
     }
 
     /** Borra un archivo o carpeta. Los enlaces simbólicos se borran como enlace, sin seguirlos. */
     fun delete(item: File, progress: OpProgress? = null) {
         val path = item.toPath()
-        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw FileOpException("«${item.name}» ya no existe")
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw FileOpException(OpMsg.GONE, item.name)
         try {
             Files.walkFileTree(path, object : SimpleFileVisitor<Path>() {
                 override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
@@ -277,7 +270,7 @@ object FileRepository {
                 }
             })
         } catch (e: IOException) {
-            throw FileOpException("No se pudo eliminar «${item.name}»")
+            throw FileOpException(OpMsg.DELETE_FAILED, item.name)
         }
     }
 
@@ -294,7 +287,7 @@ object FileRepository {
             throw e
         } catch (e: IOException) {
             deleteQuietly(target) // target era un nombre libre: todo lo que haya ahí lo creamos nosotros
-            throw FileOpException(describeIo(e, "No se pudo copiar «${source.name}»"))
+            throw ioError(e, OpMsg.COPY_FAILED, source.name)
         }
         return target
     }
@@ -322,38 +315,38 @@ object FileRepository {
             throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException(describeIo(e, "No se pudo mover «${source.name}»"))
+            throw ioError(e, OpMsg.MOVE_FAILED, source.name)
         }
         try {
             delete(source, progress)
         } catch (e: FileOpException) {
-            if (e.message == OpProgress.CANCELLED_MESSAGE) throw e
-            throw FileOpException("Se copió «${source.name}» pero no se pudo borrar el original")
+            if (e.code == OpMsg.CANCELLED) throw e
+            throw FileOpException(OpMsg.COPIED_NOT_DELETED, source.name)
         }
         return target
     }
 
-    /** Traduce los errores de disco más comunes a algo que el usuario entienda. */
-    private fun describeIo(e: IOException, fallback: String): String {
+    /** Traduce los errores de disco más comunes a algo que el usuario entienda; si no, usa [fallback] con sus argumentos. */
+    private fun ioError(e: IOException, fallback: OpMsg, vararg args: Any): FileOpException {
         val text = e.message ?: ""
         return when {
             text.contains("ENOSPC", ignoreCase = true) || text.contains("No space", ignoreCase = true) ->
-                "No hay espacio suficiente en el destino"
+                FileOpException(OpMsg.NO_SPACE)
             text.contains("EACCES", ignoreCase = true) || text.contains("Permission denied", ignoreCase = true) ->
-                "Sin permiso para escribir ahí (¿carpeta protegida o de solo lectura?)"
-            else -> fallback
+                FileOpException(OpMsg.NO_PERMISSION)
+            else -> FileOpException(fallback, *args)
         }
     }
 
     private fun checkTransfer(source: File, destDir: File) {
-        if (!existsNoFollow(source)) throw FileOpException("«${source.name}» ya no existe")
-        if (!destDir.isDirectory) throw FileOpException("La carpeta de destino no existe")
-        if (Files.isSymbolicLink(source.toPath())) throw FileOpException("No se pueden copiar ni mover enlaces simbólicos")
+        if (!existsNoFollow(source)) throw FileOpException(OpMsg.GONE, source.name)
+        if (!destDir.isDirectory) throw FileOpException(OpMsg.DEST_MISSING)
+        if (Files.isSymbolicLink(source.toPath())) throw FileOpException(OpMsg.SYMLINKS)
         if (source.isDirectory) {
             val src = canonical(source)
             val dst = canonical(destDir)
             if (dst == src || dst.path.startsWith(src.path + File.separator)) {
-                throw FileOpException("No puedes copiar ni mover una carpeta dentro de sí misma")
+                throw FileOpException(OpMsg.INTO_ITSELF)
             }
         }
     }
@@ -533,17 +526,17 @@ object FileRepository {
 
     /** Comprime [sources] en un .zip dentro de [destDir]. Devuelve el ZIP creado. */
     fun zip(sources: List<File>, destDir: File, progress: OpProgress? = null): File {
-        if (sources.isEmpty()) throw FileOpException("No hay nada que comprimir")
-        if (!destDir.isDirectory) throw FileOpException("La carpeta de destino no existe")
+        if (sources.isEmpty()) throw FileOpException(OpMsg.NOTHING_TO_ZIP)
+        if (!destDir.isDirectory) throw FileOpException(OpMsg.DEST_MISSING)
         if (sources.map { it.name }.toSet().size != sources.size) {
-            throw FileOpException("Hay dos elementos con el mismo nombre; comprímelos por separado")
+            throw FileOpException(OpMsg.ZIP_DUP_NAMES)
         }
-        for (s in sources) if (!existsNoFollow(s)) throw FileOpException("«${s.name}» ya no existe")
+        for (s in sources) if (!existsNoFollow(s)) throw FileOpException(OpMsg.GONE, s.name)
 
         val first = sources.first()
         val dot = first.name.lastIndexOf('.')
         val base = when {
-            sources.size > 1 -> "Archivo"
+            sources.size > 1 -> OpText.render(OpMsg.DEFAULT_ARCHIVE_NAME)
             first.isFile && dot > 0 -> first.name.substring(0, dot)
             else -> first.name
         }
@@ -590,7 +583,7 @@ object FileRepository {
             throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException(describeIo(e, "No se pudo crear el ZIP"))
+            throw ioError(e, OpMsg.ZIP_CREATE_FAILED)
         }
         progress?.touch(target.path)
         return target
@@ -604,14 +597,14 @@ object FileRepository {
      * que intenten salir de esa carpeta y se detiene si no hay espacio suficiente.
      */
     fun unzip(zipFile: File, progress: OpProgress? = null): File {
-        if (!zipFile.isFile) throw FileOpException("«${zipFile.name}» no es un archivo")
-        val destParent = zipFile.parentFile ?: throw FileOpException("No se puede extraer aquí")
+        if (!zipFile.isFile) throw FileOpException(OpMsg.NOT_A_FILE, zipFile.name)
+        val destParent = zipFile.parentFile ?: throw FileOpException(OpMsg.EXTRACT_HERE)
         val rawBase = if (zipFile.name.endsWith(".zip", ignoreCase = true)) zipFile.name.dropLast(4) else zipFile.name
-        val target = uniqueTarget(destParent, rawBase.ifBlank { "extraido" }, true)
+        val target = uniqueTarget(destParent, rawBase.ifBlank { OpText.render(OpMsg.DEFAULT_EXTRACT_NAME) }, true)
         try {
             ZipFile(zipFile).use { zf ->
-                if (zf.size() > MAX_ZIP_ENTRIES) throw FileOpException("El ZIP tiene demasiados archivos")
-                if (!target.mkdir()) throw FileOpException("No se pudo crear la carpeta de destino")
+                if (zf.size() > MAX_ZIP_ENTRIES) throw FileOpException(OpMsg.ZIP_TOO_MANY)
+                if (!target.mkdir()) throw FileOpException(OpMsg.DEST_CREATE_FAILED)
                 val rootPath = target.canonicalPath
                 var budget = target.usableSpace
                 val buffer = ByteArray(COPY_BUFFER_SIZE)
@@ -622,7 +615,7 @@ object FileRepository {
                     val out = File(target, entry.name)
                     val outPath = out.canonicalPath
                     if (outPath != rootPath && !outPath.startsWith(rootPath + File.separator)) {
-                        throw FileOpException("El ZIP contiene rutas no seguras y no se extrajo")
+                        throw FileOpException(OpMsg.ZIP_UNSAFE)
                     }
                     if (entry.isDirectory) {
                         out.mkdirs()
@@ -636,7 +629,7 @@ object FileRepository {
                                 val n = input.read(buffer)
                                 if (n < 0) break
                                 budget -= n
-                                if (budget < 0) throw FileOpException("No hay espacio suficiente para extraer")
+                                if (budget < 0) throw FileOpException(OpMsg.EXTRACT_NO_SPACE)
                                 output.write(buffer, 0, n)
                                 progress?.addBytes(n.toLong())
                             }
@@ -651,7 +644,7 @@ object FileRepository {
             throw e
         } catch (e: IOException) {
             deleteQuietly(target)
-            throw FileOpException(describeIo(e, "No se pudo extraer el ZIP (¿está dañado?)"))
+            throw ioError(e, OpMsg.EXTRACT_FAILED)
         }
         return target
     }
@@ -699,7 +692,7 @@ object FileRepository {
         try { Files.isSameFile(a.toPath(), b.toPath()) } catch (e: IOException) { false }
 
     private fun canonical(f: File): File =
-        try { f.canonicalFile } catch (e: IOException) { throw FileOpException("No se pudo resolver la ruta de «${f.name}»") }
+        try { f.canonicalFile } catch (e: IOException) { throw FileOpException(OpMsg.RESOLVE_PATH_FAILED, f.name) }
 
     private fun deleteQuietly(f: File) {
         try { delete(f) } catch (e: Exception) { /* nada que limpiar */ }

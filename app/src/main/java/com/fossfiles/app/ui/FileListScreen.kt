@@ -14,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -103,17 +105,17 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                         TopAppBar(
                             title = { Text(currentDir.name.ifBlank { "/" }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             navigationIcon = {
-                                IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás") { if (!viewModel.goUp()) onBack() }
+                                IconAction(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) { if (!viewModel.goUp()) onBack() }
                             },
                             actions = {
-                                IconAction(Icons.AutoMirrored.Filled.Sort, "Opciones de vista") { showOptions = !showOptions }
-                                IconAction(Icons.Default.CreateNewFolder, "Nueva carpeta") { showNewFolderDialog = true }
+                                IconAction(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.view_options)) { showOptions = !showOptions }
+                                IconAction(Icons.Default.CreateNewFolder, stringResource(R.string.new_folder)) { showNewFolderDialog = true }
                             }
                         )
                         PlainTextField(
                             value = searchQuery,
                             onValueChange = { viewModel.setSearch(it) },
-                            placeholder = "Buscar en esta carpeta...",
+                            placeholder = stringResource(R.string.search_in_folder),
                             leadingIcon = Icons.Default.Search,
                             onClear = { viewModel.setSearch("") },
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
@@ -136,7 +138,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 }
                 StatusLine(viewModel.loadingVisible.value)
                 if (!loading && upToDate && items.isEmpty()) {
-                    EmptyMessage(if (searchQuery.isNotBlank() || filter.isActive) "Sin resultados" else "Carpeta vacía")
+                    EmptyMessage(stringResource(if (searchQuery.isNotBlank() || filter.isActive) R.string.no_results else R.string.empty_folder))
                 }
                 FileCollection(
                     items = items,
@@ -155,7 +157,7 @@ fun FileListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
 
         if (showNewFolderDialog) {
             NameInputDialog(
-                title = "Nueva carpeta",
+                title = stringResource(R.string.new_folder),
                 initialValue = "",
                 onConfirm = {
                     viewModel.createFolder(it)
@@ -205,11 +207,11 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
                 } else {
                     TopAppBar(
                         title = { Text(title) },
-                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Atrás", onBack) },
+                        navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back), onBack) },
                         actions = {
                             IconAction(
                                 if (grid) Icons.AutoMirrored.Filled.ViewList else Icons.Default.GridView,
-                                if (grid) "Ver como lista" else "Ver como cuadrícula"
+                                stringResource(if (grid) R.string.view_as_list else R.string.view_as_grid)
                             ) { viewModel.toggleGrid() }
                         }
                     )
@@ -218,7 +220,7 @@ fun CategoryListScreen(viewModel: FileViewModel, onBack: () -> Unit) {
         ) { padding ->
             Column(Modifier.padding(padding)) {
                 StatusLine(viewModel.loadingVisible.value)
-                if (!loading && items.isEmpty()) EmptyMessage("No se encontró nada en esta categoría")
+                if (!loading && items.isEmpty()) EmptyMessage(stringResource(R.string.category_empty))
                 FileCollection(
                     items = items,
                     selection = selection,
@@ -246,7 +248,7 @@ private fun SelectionDialogs(
     when (dialog) {
         SelectionDialog.RENAME -> selected.singleOrNull()?.let { target ->
             NameInputDialog(
-                title = "Renombrar",
+                title = stringResource(R.string.rename),
                 initialValue = target.name,
                 onConfirm = {
                     viewModel.rename(target.file, it)
@@ -294,31 +296,41 @@ private fun SelectionTopBar(
     // Se reinicia (a cerrada) cada vez que la selección se vacía y vuelve a empezar.
     var showMore by remember(count > 0) { mutableStateOf(false) }
 
+    // Los textos se resuelven aquí (contexto composable) y no dentro de buildList.
+    val sSelectAll = stringResource(R.string.select_all)
+    val sInvert = stringResource(R.string.invert_selection)
+    val sRemoveFav = stringResource(R.string.remove_favorite)
+    val sAddFav = stringResource(R.string.add_favorite)
+    val sRename = stringResource(R.string.rename)
+    val sShare = stringResource(R.string.share)
+    val sCompress = stringResource(R.string.compress)
+    val sExtract = stringResource(R.string.extract)
+    val sDetails = stringResource(R.string.details)
     val extra = buildList<Pair<String, () -> Unit>> {
-        add("Seleccionar todo" to { viewModel.selectAll() })
-        add("Invertir selección" to { viewModel.invertSelection() })
+        add(sSelectAll to { viewModel.selectAll() })
+        add(sInvert to { viewModel.invertSelection() })
         val allFavorite = selected.isNotEmpty() && selected.all { it.path in favorites }
-        add((if (allFavorite) "Quitar de favoritos" else "Añadir a favoritos") to { viewModel.toggleFavoriteForSelection() })
-        if (selected.size == 1) add("Renombrar" to onRename)
-        add("Compartir" to {
+        add((if (allFavorite) sRemoveFav else sAddFav) to { viewModel.toggleFavoriteForSelection() })
+        if (selected.size == 1) add(sRename to onRename)
+        add(sShare to {
             shareFiles(context, selected.map { it.file })?.let { viewModel.message.value = it }
         })
-        if (inBrowse) add("Comprimir" to { viewModel.compressSelected() })
+        if (inBrowse) add(sCompress to { viewModel.compressSelected() })
         if (inBrowse && selected.any { !it.isDirectory && it.file.extension.equals("zip", ignoreCase = true) }) {
-            add("Extraer" to { viewModel.extractSelected() })
+            add(sExtract to { viewModel.extractSelected() })
         }
-        if (selected.size == 1) add("Detalles" to { viewModel.showDetails(selected.first().file) })
+        if (selected.size == 1) add(sDetails to { viewModel.showDetails(selected.first().file) })
     }
 
     Column {
         TopAppBar(
-            title = { Text(if (count == 1) "1 seleccionado" else "$count seleccionados", maxLines = 1) },
-            navigationIcon = { IconAction(Icons.Default.Close, "Cancelar selección") { viewModel.clearSelection() } },
+            title = { Text(pluralText(R.plurals.selected_count, count, count), maxLines = 1) },
+            navigationIcon = { IconAction(Icons.Default.Close, stringResource(R.string.cancel_selection)) { viewModel.clearSelection() } },
             actions = {
-                IconAction(Icons.Default.ContentCopy, "Copiar") { viewModel.copySelectedToClipboard() }
-                IconAction(Icons.Default.ContentCut, "Cortar") { viewModel.cutSelectedToClipboard() }
-                IconAction(Icons.Default.Delete, "Eliminar", onDelete)
-                IconAction(Icons.Default.MoreVert, "Más acciones") { showMore = !showMore }
+                IconAction(Icons.Default.ContentCopy, stringResource(R.string.copy)) { viewModel.copySelectedToClipboard() }
+                IconAction(Icons.Default.ContentCut, stringResource(R.string.cut)) { viewModel.cutSelectedToClipboard() }
+                IconAction(Icons.Default.Delete, stringResource(R.string.delete), onDelete)
+                IconAction(Icons.Default.MoreVert, stringResource(R.string.more_actions)) { showMore = !showMore }
             }
         )
         if (showMore) {
@@ -342,23 +354,23 @@ private fun OptionsRow(viewModel: FileViewModel) {
     val hidden by viewModel.showHidden
     val reverse by viewModel.sortReverse
     val sorts = listOf(
-        SortMode.NAME to "Nombre",
-        SortMode.DATE to "Fecha",
-        SortMode.SIZE to "Tamaño",
-        SortMode.TYPE to "Tipo"
+        SortMode.NAME to stringResource(R.string.sort_name),
+        SortMode.DATE to stringResource(R.string.sort_date),
+        SortMode.SIZE to stringResource(R.string.sort_size),
+        SortMode.TYPE to stringResource(R.string.sort_type)
     )
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Ordenar:", style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.sort_label), style = MaterialTheme.typography.bodyMedium)
         sorts.forEach { (mode, label) ->
             OptionText(label, active = mode == sort) { viewModel.setSort(mode) }
         }
-        OptionText(if (reverse) "Orden: inverso" else "Orden: normal", active = reverse) { viewModel.toggleSortReverse() }
+        OptionText(stringResource(if (reverse) R.string.order_reversed else R.string.order_normal), active = reverse) { viewModel.toggleSortReverse() }
         Spacer(Modifier.width(12.dp))
-        OptionText(if (grid) "Vista: cuadrícula" else "Vista: lista", active = false) { viewModel.toggleGrid() }
-        OptionText(if (hidden) "Ocultos: sí" else "Ocultos: no", active = hidden) { viewModel.toggleHidden() }
+        OptionText(stringResource(if (grid) R.string.view_mode_grid else R.string.view_mode_list), active = false) { viewModel.toggleGrid() }
+        OptionText(stringResource(if (hidden) R.string.hidden_yes else R.string.hidden_no), active = hidden) { viewModel.toggleHidden() }
     }
 }
 
@@ -370,11 +382,11 @@ private fun FilterRow(viewModel: FileViewModel) {
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Filtrar:", style = MaterialTheme.typography.bodyMedium)
-        OptionText("Tipo: ${f.type.label}", active = f.type != TypeFilter.ALL) { viewModel.cycleTypeFilter() }
-        OptionText("Fecha: ${f.date.label}", active = f.date != DateFilter.ANY) { viewModel.cycleDateFilter() }
-        OptionText("Tamaño: ${f.size.label}", active = f.size != SizeFilter.ANY) { viewModel.cycleSizeFilter() }
-        if (f.isActive) OptionText("Limpiar", active = false) { viewModel.clearFilters() }
+        Text(stringResource(R.string.filter_label), style = MaterialTheme.typography.bodyMedium)
+        OptionText(stringResource(R.string.filter_type, typeFilterLabel(f.type)), active = f.type != TypeFilter.ALL) { viewModel.cycleTypeFilter() }
+        OptionText(stringResource(R.string.filter_date, dateFilterLabel(f.date)), active = f.date != DateFilter.ANY) { viewModel.cycleDateFilter() }
+        OptionText(stringResource(R.string.filter_size, sizeFilterLabel(f.size)), active = f.size != SizeFilter.ANY) { viewModel.cycleSizeFilter() }
+        if (f.isActive) OptionText(stringResource(R.string.filter_clear), active = false) { viewModel.clearFilters() }
     }
 }
 
@@ -396,19 +408,29 @@ private fun DetailsDialog(details: FileDetails, onDismiss: () -> Unit) {
     ModalOverlay(onDismiss = onDismiss) {
         Text(file.name, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(12.dp))
-        DetailRow("Ubicación", file.parent ?: "/")
-        DetailRow("Tipo", if (details.isDirectory) "Carpeta" else (mimeTypeOf(file) ?: "Archivo"))
+        DetailRow(stringResource(R.string.detail_location), file.parent ?: "/")
         DetailRow(
-            "Tamaño",
-            if (!details.ready) "Calculando…"
-            else "${formatSize(details.sizeBytes)} (${"%,d".format(details.sizeBytes)} bytes)"
+            stringResource(R.string.detail_type),
+            if (details.isDirectory) stringResource(R.string.detail_folder) else (mimeTypeOf(file) ?: stringResource(R.string.detail_file))
+        )
+        DetailRow(
+            stringResource(R.string.detail_size),
+            if (!details.ready) stringResource(R.string.detail_calculating)
+            else stringResource(R.string.detail_size_value, formatSize(details.sizeBytes), "%,d".format(details.sizeBytes))
         )
         if (details.isDirectory && details.ready) {
-            DetailRow("Contenido", "${details.files} archivos, ${details.folders} carpetas")
+            DetailRow(
+                stringResource(R.string.detail_contents),
+                stringResource(
+                    R.string.detail_contents_value,
+                    pluralText(R.plurals.files_count, details.files, details.files),
+                    pluralText(R.plurals.folders_count, details.folders, details.folders)
+                )
+            )
         }
-        DetailRow("Modificado", dateFmt.format(Date(details.lastModified)))
+        DetailRow(stringResource(R.string.detail_modified), dateFmt.format(Date(details.lastModified)))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PlainTextButton("Cerrar", onDismiss)
+            PlainTextButton(stringResource(R.string.close), onDismiss)
         }
     }
 }
@@ -426,7 +448,7 @@ private fun DetailRow(label: String, value: String) {
 internal fun StatusLine(show: Boolean) {
     if (show) {
         Text(
-            "Cargando…",
+            stringResource(R.string.loading),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
         )
@@ -443,7 +465,7 @@ internal fun EmptyMessage(text: String) {
 /** Lo que hay en el portapapeles (copiar / cortar) y cómo usarlo: pegar en la carpeta actual o descartar. */
 @Composable
 private fun ClipboardStrip(count: Int, isCut: Boolean, onPaste: () -> Unit, onCancel: () -> Unit) {
-    val what = if (count == 1) "1 elemento" else "$count elementos"
+    val what = pluralText(R.plurals.items_count, count, count)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -452,11 +474,46 @@ private fun ClipboardStrip(count: Int, isCut: Boolean, onPaste: () -> Unit, onCa
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = if (isCut) "$what para mover" else "$what para copiar",
+            text = stringResource(if (isCut) R.string.clipboard_to_move else R.string.clipboard_to_copy, what),
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )
-        PlainTextButton("Pegar aquí", onPaste)
-        PlainTextButton("Cancelar", onCancel)
+        PlainTextButton(stringResource(R.string.paste_here), onPaste)
+        PlainTextButton(stringResource(R.string.cancel), onCancel)
     }
 }
+
+// Nombres de los filtros en el idioma activo (la lógica de filtrado no conoce idiomas).
+@Composable
+private fun typeFilterLabel(t: TypeFilter): String = stringResource(
+    when (t) {
+        TypeFilter.ALL -> R.string.type_all
+        TypeFilter.FOLDERS -> R.string.type_folders
+        TypeFilter.IMAGES -> R.string.type_images
+        TypeFilter.VIDEOS -> R.string.type_videos
+        TypeFilter.AUDIO -> R.string.type_audio
+        TypeFilter.DOCUMENTS -> R.string.type_documents
+    }
+)
+
+@Composable
+private fun dateFilterLabel(d: DateFilter): String = stringResource(
+    when (d) {
+        DateFilter.ANY -> R.string.date_any
+        DateFilter.DAY -> R.string.date_24h
+        DateFilter.WEEK -> R.string.date_7d
+        DateFilter.MONTH -> R.string.date_30d
+        DateFilter.YEAR -> R.string.date_1y
+    }
+)
+
+@Composable
+private fun sizeFilterLabel(s: SizeFilter): String = stringResource(
+    when (s) {
+        SizeFilter.ANY -> R.string.size_any
+        SizeFilter.OVER_1MB -> R.string.size_1mb
+        SizeFilter.OVER_10MB -> R.string.size_10mb
+        SizeFilter.OVER_100MB -> R.string.size_100mb
+        SizeFilter.OVER_1GB -> R.string.size_1gb
+    }
+)

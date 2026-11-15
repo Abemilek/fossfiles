@@ -37,6 +37,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
+import androidx.compose.ui.platform.LocalContext
+import androidx.annotation.PluralsRes
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -127,7 +131,7 @@ private fun FieldFrame(
             Spacer(Modifier.width(8.dp))
             Icon(
                 Icons.Default.Close,
-                contentDescription = "Borrar búsqueda",
+                contentDescription = stringResource(R.string.clear_search),
                 modifier = Modifier.size(20.dp).plainClickable(onClick = onClear)
             )
         }
@@ -239,14 +243,14 @@ fun NameInputDialog(
         PlainTextField(
             value = field,
             onValueChange = { field = it },
-            placeholder = "Nombre",
+            placeholder = stringResource(R.string.name_hint),
             modifier = Modifier.focusRequester(focusRequester),
             onDone = { if (field.text.isNotBlank()) onConfirm(field.text) }
         )
         Spacer(Modifier.size(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PlainTextButton("Cancelar", onDismiss)
-            PlainTextButton("Aceptar") { if (field.text.isNotBlank()) onConfirm(field.text) }
+            PlainTextButton(stringResource(R.string.cancel), onDismiss)
+            PlainTextButton(stringResource(R.string.ok)) { if (field.text.isNotBlank()) onConfirm(field.text) }
         }
     }
 }
@@ -266,7 +270,7 @@ fun ConfirmDialog(
         Text(text, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.size(16.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            PlainTextButton("Cancelar", onDismiss)
+            PlainTextButton(stringResource(R.string.cancel), onDismiss)
             PlainTextButton(confirmLabel, onConfirm)
         }
     }
@@ -281,20 +285,23 @@ fun DeleteChoiceDialog(
     onPermanent: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val what = if (names.size == 1) "«${names.first()}»" else "${names.size} elementos"
+    val what = if (names.size == 1) {
+        stringResource(R.string.quoted_name, names.first())
+    } else {
+        pluralText(R.plurals.items_count, names.size, names.size)
+    }
     ModalOverlay(onDismiss = onDismiss) {
-        Text("¿Eliminar $what?", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.delete_title, what), style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.size(12.dp))
         Text(
-            "Si lo envías a la papelera podrás restaurarlo durante $trashDays días. Si lo eliminas definitivamente, " +
-                "se borra de inmediato y, si es una carpeta, también todo lo que contiene.",
+            pluralText(R.plurals.delete_body, trashDays, trashDays),
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.size(12.dp))
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-            PlainTextButton("Enviar a la papelera", onTrash)
-            PlainTextButton("Eliminar definitivamente", onPermanent)
-            PlainTextButton("Cancelar", onDismiss)
+            PlainTextButton(stringResource(R.string.move_to_trash), onTrash)
+            PlainTextButton(stringResource(R.string.delete_permanently), onPermanent)
+            PlainTextButton(stringResource(R.string.cancel), onDismiss)
         }
     }
 }
@@ -314,21 +321,29 @@ fun MessageBanner(text: String, onDismiss: () -> Unit, modifier: Modifier = Modi
     }
 }
 
+/**
+ * Texto con plural ("1 elemento" / "5 elementos") según el idioma activo. Usa las reglas de plurales del sistema,
+ * así funciona igual en inglés y en español (y en cualquier idioma que se añada después).
+ */
+@Composable
+fun pluralText(@PluralsRes id: Int, count: Int, vararg args: Any): String =
+    LocalContext.current.resources.getQuantityString(id, count, *args)
+
 /** Pregunta qué hacer al tocar un ZIP: extraerlo aquí o abrirlo con otra app. */
 @Composable
 fun ZipPromptDialog(name: String, onExtract: () -> Unit, onOpenWith: () -> Unit, onDismiss: () -> Unit) {
     ModalOverlay(onDismiss = onDismiss) {
-        Text("«$name»", style = MaterialTheme.typography.titleLarge, maxLines = 2)
+        Text(stringResource(R.string.quoted_name, name), style = MaterialTheme.typography.titleLarge, maxLines = 2)
         Spacer(Modifier.size(12.dp))
         Text(
-            "Es un archivo ZIP. Si lo extraes, se crea una carpeta nueva con su contenido junto a él.",
+            stringResource(R.string.zip_prompt_text),
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.size(12.dp))
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-            PlainTextButton("Extraer aquí", onExtract)
-            PlainTextButton("Abrir con otra app", onOpenWith)
-            PlainTextButton("Cancelar", onDismiss)
+            PlainTextButton(stringResource(R.string.extract_here), onExtract)
+            PlainTextButton(stringResource(R.string.open_with_other), onOpenWith)
+            PlainTextButton(stringResource(R.string.cancel), onDismiss)
         }
     }
 }
@@ -350,7 +365,7 @@ fun ProgressStrip(info: ProgressInfo, onCancel: () -> Unit, modifier: Modifier =
                 Text(info.title + "…", style = MaterialTheme.typography.titleSmall)
                 if (info.detail.isNotEmpty()) Text(info.detail, style = MaterialTheme.typography.bodySmall)
             }
-            PlainTextButton("Cancelar", onCancel)
+            PlainTextButton(stringResource(R.string.cancel), onCancel)
         }
         val fraction = info.fraction
         if (fraction != null) {

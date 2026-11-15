@@ -14,6 +14,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.fossfiles.app.R
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -94,7 +96,7 @@ fun ImageViewer(
                     )
             )
         } else {
-            Text("Cargando…", color = Color.White, modifier = Modifier.align(Alignment.Center))
+            Text(stringResource(R.string.loading), color = Color.White, modifier = Modifier.align(Alignment.Center))
         }
 
         // Los íconos de la app son oscuros en tema claro: sobre fondo negro se fuerzan a blanco.
@@ -107,7 +109,7 @@ fun ImageViewer(
                     .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconAction(Icons.Default.Close, "Cerrar", onClose)
+                IconAction(Icons.Default.Close, stringResource(R.string.close), onClose)
                 Text(
                     text = "${state.index + 1}/${state.images.size}  ${item.name}",
                     color = Color.White,
@@ -115,7 +117,7 @@ fun ImageViewer(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconAction(Icons.AutoMirrored.Filled.OpenInNew, "Abrir con otra app") { onOpenWith(item) }
+                IconAction(Icons.AutoMirrored.Filled.OpenInNew, stringResource(R.string.open_with_other)) { onOpenWith(item) }
             }
             if (state.images.size > 1) {
                 Row(
@@ -126,8 +128,8 @@ fun ImageViewer(
                         .padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Anterior") { onStep(-1) }
-                    IconAction(Icons.AutoMirrored.Filled.ArrowForward, "Siguiente") { onStep(1) }
+                    IconAction(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.previous)) { onStep(-1) }
+                    IconAction(Icons.AutoMirrored.Filled.ArrowForward, stringResource(R.string.next)) { onStep(1) }
                 }
             }
         }
