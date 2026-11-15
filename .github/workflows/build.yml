@@ -18,6 +18,28 @@ jobs:
       - name: Check out
         uses: actions/checkout@v5
 
+      - name: Set up release signing
+        # Writes the keystore and keystore.properties from repository secrets so
+        # the release APK is signed with the real key instead of the debug key.
+        # Without the secrets the build still works (falls back to debug signing).
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEYSTORE_KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::warning::KEYSTORE_BASE64 secret is not set; the APK will be signed with the debug key."
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > fossfiles-release.jks
+          {
+            echo "storeFile=fossfiles-release.jks"
+            echo "storePassword=$KEYSTORE_STORE_PASSWORD"
+            echo "keyAlias=$KEYSTORE_KEY_ALIAS"
+            echo "keyPassword=$KEYSTORE_KEY_PASSWORD"
+          } > keystore.properties
+
       - name: Build the builder image (JDK + Android SDK)
         run: docker build -f Containerfile -t fossfiles-builder:latest .
 
@@ -56,3 +78,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: app/build/outputs/apk/release/*.apk
+
+      - name: Remove signing material
+        # The runner is ephemeral, but do not leave the keystore around.
+        if: always()
+        run: rm -f fossfiles-release.jks keystore.properties
